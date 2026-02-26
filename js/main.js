@@ -16,6 +16,7 @@ import { renderSpeciesGallery } from './species-gallery.js';
 import { renderInventoryView, setOnItemUsed, setOnInventoryBack } from './inventory-ui.js';
 import { stopAllAnimators } from './animation.js';
 import { ITEM_TYPES, createItem } from './items.js';
+import { renderItemGallery, setOnItemGalleryBack } from './item-gallery.js';
 import { SPECIES, RARITY } from './plant-data.js';
 
 let currentScreen = 'plant';
@@ -53,6 +54,11 @@ function init() {
     switchToGallery();
   });
 
+  // Item Gallery button
+  document.getElementById('itemGalleryBtn').addEventListener('click', () => {
+    switchToItemGallery();
+  });
+
   // Completion overlay "Move to Garden" button
   document.getElementById('moveToGardenBtn').addEventListener('click', handleMoveToGarden);
 
@@ -64,6 +70,11 @@ function init() {
   });
   setOnInventoryBack(() => {
     stopAllAnimators();
+    currentScreen = 'plant';
+    showScreen('plantScreen');
+    updatePlantView(loadState());
+  });
+  setOnItemGalleryBack(() => {
     currentScreen = 'plant';
     showScreen('plantScreen');
     updatePlantView(loadState());
@@ -162,6 +173,13 @@ function switchToInventory() {
   showScreen('inventoryScreen');
   const container = document.getElementById('inventoryContainer');
   renderInventoryView(container);
+}
+
+function switchToItemGallery() {
+  currentScreen = 'itemGallery';
+  showScreen('itemGalleryScreen');
+  const container = document.getElementById('itemGalleryContainer');
+  renderItemGallery(container);
 }
 
 function switchToGallery() {
