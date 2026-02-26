@@ -1,0 +1,1158 @@
+/* Plant Tamagotchi — Pixel Art Aesthetic */
+
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg: #f5f0e1;
+  --bg-dark: #e8e0cc;
+  --text: #3a2e1e;
+  --text-light: #6b5d4a;
+  --accent: #5a7a3a;
+  --accent-light: #7da356;
+  --border: #c4b69c;
+  --shadow: rgba(58, 46, 30, 0.15);
+
+  --common: #6b7b3a;
+  --uncommon: #2d8a4e;
+  --rare: #2d6fba;
+  --epic: #7b3fa0;
+  --legendary: #c49a1a;
+}
+
+html, body {
+  height: 100%;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  overflow-x: hidden;
+}
+
+h1, h2, h3 {
+  font-family: 'Press Start 2P', monospace;
+}
+
+/* Screens */
+.screen {
+  display: none;
+  min-height: 100vh;
+  padding: 1rem;
+}
+.screen-active {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Plant Screen */
+.plant-screen {
+  padding-top: 1.5rem;
+  gap: 1rem;
+  max-width: 500px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.app-title {
+  font-size: 0.85rem;
+  color: var(--accent);
+  text-align: center;
+  letter-spacing: 1px;
+}
+
+/* Plant Display */
+.plant-display {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--bg-dark);
+  border: 3px solid var(--border);
+  border-radius: 8px;
+  padding: 1.5rem 1rem;
+  width: 100%;
+  box-shadow: 0 4px 12px var(--shadow);
+  position: relative;
+}
+
+.plant-canvas-wrap {
+  position: relative;
+  margin-bottom: 1rem;
+}
+
+.plant-canvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  display: block;
+  transform-origin: bottom center;
+}
+
+/* ── Sway animations by rarity ── */
+
+.sway-gentle {
+  animation: swayGentle 5s ease-in-out infinite;
+}
+.sway-mild {
+  animation: swayMild 4.2s ease-in-out infinite;
+}
+.sway-moderate {
+  animation: swayModerate 3.8s ease-in-out infinite;
+}
+.sway-lush {
+  animation: swayLush 3.4s ease-in-out infinite;
+}
+.sway-majestic {
+  animation: swayMajestic 6s ease-in-out infinite;
+}
+
+@keyframes swayGentle {
+  0%, 100% { transform: rotate(0deg); }
+  50%      { transform: rotate(0.6deg); }
+}
+
+@keyframes swayMild {
+  0%, 100% { transform: rotate(-0.5deg); }
+  50%      { transform: rotate(0.8deg); }
+}
+
+@keyframes swayModerate {
+  0%, 100% { transform: rotate(-0.8deg) scale(1); }
+  33%      { transform: rotate(1deg) scale(1.005); }
+  66%      { transform: rotate(-0.3deg) scale(1); }
+}
+
+@keyframes swayLush {
+  0%       { transform: rotate(-1deg) scale(1); }
+  25%      { transform: rotate(0.8deg) scale(1.008); }
+  50%      { transform: rotate(-0.5deg) scale(1.003); }
+  75%      { transform: rotate(1.2deg) scale(1.008); }
+  100%     { transform: rotate(-1deg) scale(1); }
+}
+
+@keyframes swayMajestic {
+  0%       { transform: rotate(-0.8deg) scale(1); }
+  15%      { transform: rotate(1deg) scale(1.01); }
+  30%      { transform: rotate(-0.4deg) scale(1.005); }
+  50%      { transform: rotate(1.3deg) scale(1.015); }
+  70%      { transform: rotate(-0.6deg) scale(1.005); }
+  85%      { transform: rotate(0.8deg) scale(1.01); }
+  100%     { transform: rotate(-0.8deg) scale(1); }
+}
+
+.plant-info {
+  text-align: center;
+  width: 100%;
+}
+
+.plant-name {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 1rem;
+  margin-bottom: 0.25rem;
+}
+
+.plant-rarity {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  margin-bottom: 0.75rem;
+}
+
+/* Progress Bar */
+.progress-bar-wrap {
+  width: 100%;
+  margin: 0.5rem 0;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 20px;
+  background: var(--bg);
+  border: 2px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #1a4a7a, #5bb8f5);
+  transition: width 0.5s ease;
+  border-radius: 2px;
+}
+
+.progress-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.5rem;
+  color: var(--text);
+  text-shadow: 0 0 3px var(--bg);
+}
+
+.growth-info {
+  font-size: 0.8rem;
+  color: var(--text-light);
+  margin-top: 0.25rem;
+  text-align: center;
+}
+
+/* Streak */
+.streak-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.streak-label {
+  color: var(--text-light);
+}
+
+.streak-count {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.streak-bonus {
+  font-size: 0.75rem;
+  color: var(--legendary);
+  font-weight: 700;
+}
+
+/* Buttons */
+.btn {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.65rem;
+  padding: 0.75rem 1.5rem;
+  border: 3px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-dark);
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px var(--shadow);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-water {
+  font-size: 0.75rem;
+  padding: 1rem 2rem;
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  width: 100%;
+  max-width: 320px;
+}
+
+.btn-water:hover:not(:disabled) {
+  background: var(--accent-light);
+  border-color: var(--accent-light);
+}
+
+.btn-disabled {
+  background: var(--bg-dark) !important;
+  color: var(--text-light) !important;
+  border-color: var(--border) !important;
+  cursor: not-allowed !important;
+  opacity: 0.7;
+}
+
+.btn-complete {
+  background: var(--legendary) !important;
+  border-color: var(--legendary) !important;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.03); }
+}
+
+.btn-sm {
+  font-size: 0.5rem;
+  padding: 0.4rem 0.8rem;
+  font-family: 'Press Start 2P', monospace;
+}
+
+.btn-back {
+  font-size: 0.55rem;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  margin-top: 0.5rem;
+}
+
+.secondary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+/* Garden Screen */
+.garden-screen {
+  padding-top: 1.5rem;
+  max-width: 800px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.garden-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 1rem;
+}
+
+.garden-header h2 {
+  font-size: 0.9rem;
+  color: var(--accent);
+}
+
+.garden-stats {
+  background: var(--bg-dark);
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  width: 100%;
+  margin-bottom: 1rem;
+}
+
+.stat-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  font-size: 0.8rem;
+  margin-bottom: 0.5rem;
+}
+
+.rarity-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+}
+
+.rarity-badge {
+  font-weight: 700;
+}
+
+.garden-bonus-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  padding: 0.4rem 0.6rem;
+  background: rgba(58, 46, 30, 0.06);
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+
+.garden-bonus-indicator .bonus-label {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.35rem;
+  color: var(--text-light);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.garden-bonus-indicator .bonus-value {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.45rem;
+  color: var(--accent);
+  font-weight: bold;
+}
+
+.garden-bonus-indicator .bonus-effective {
+  font-size: 0.7rem;
+  color: var(--text-light);
+}
+
+.sort-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  font-size: 0.8rem;
+  color: var(--text-light);
+}
+
+.sort-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.garden-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.garden-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--bg-dark);
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem 0.5rem 0.5rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.garden-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px var(--shadow);
+}
+
+.garden-canvas-wrap {
+  margin-bottom: 0.4rem;
+}
+
+.garden-plant-canvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  display: block;
+  margin-bottom: 0.4rem;
+}
+
+.garden-card-info {
+  text-align: center;
+}
+
+.garden-card-name {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.45rem;
+  display: block;
+  margin-bottom: 0.15rem;
+}
+
+.garden-card-rarity {
+  font-size: 0.65rem;
+  color: var(--text-light);
+}
+
+.garden-empty {
+  text-align: center;
+  color: var(--text-light);
+  font-size: 0.9rem;
+  padding: 2rem 0;
+}
+
+/* Species Gallery */
+.gallery-screen {
+  padding-top: 1.5rem;
+  max-width: 800px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.gallery-intro {
+  color: var(--text-light);
+  font-size: 0.85rem;
+  margin-bottom: 1.25rem;
+  line-height: 1.5;
+}
+
+.gallery-section {
+  margin-bottom: 1.5rem;
+}
+
+.gallery-rarity-heading {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 2px solid var(--border);
+}
+
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.75rem;
+}
+
+.gallery-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--bg-dark);
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 0.5rem 0.75rem;
+  transition: all 0.15s;
+}
+
+.gallery-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px var(--shadow);
+}
+
+.gallery-canvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  display: block;
+  margin-bottom: 0.6rem;
+}
+
+.gallery-card-info {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.gallery-card-name {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.5rem;
+}
+
+.gallery-card-detail {
+  font-size: 0.7rem;
+  color: var(--text-light);
+}
+
+.gallery-canvas-wrap {
+  margin-bottom: 0.6rem;
+}
+
+/* Locked / undiscovered species */
+.gallery-card-locked {
+  background: var(--bg);
+  border-style: dashed !important;
+}
+
+.gallery-card-locked:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.gallery-silhouette {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  display: block;
+  filter: brightness(0.7);
+}
+
+.gallery-name-locked {
+  color: var(--text-light) !important;
+  font-style: italic;
+}
+
+.gallery-name-known {
+  opacity: 0.7;
+}
+
+/* Mini sway for thumbnails — reduced amplitude */
+.sway-mini {
+  animation-duration: 6s !important;
+}
+.sway-mini.sway-gentle {
+  animation-name: swayMini !important;
+}
+.sway-mini.sway-mild {
+  animation-name: swayMini !important;
+}
+.sway-mini.sway-moderate {
+  animation-name: swayMiniMod !important;
+}
+.sway-mini.sway-lush {
+  animation-name: swayMiniMod !important;
+}
+.sway-mini.sway-majestic {
+  animation-name: swayMiniMaj !important;
+}
+
+@keyframes swayMini {
+  0%, 100% { transform: rotate(0deg); }
+  50%      { transform: rotate(0.4deg); }
+}
+@keyframes swayMiniMod {
+  0%, 100% { transform: rotate(-0.3deg); }
+  50%      { transform: rotate(0.5deg); }
+}
+@keyframes swayMiniMaj {
+  0%, 100% { transform: rotate(-0.4deg); }
+  33%      { transform: rotate(0.5deg) scale(1.005); }
+  66%      { transform: rotate(-0.2deg); }
+}
+
+/* Detail Overlay */
+.detail-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(58, 46, 30, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 1rem;
+}
+
+.detail-card {
+  background: var(--bg);
+  border: 3px solid var(--border);
+  border-radius: 10px;
+  padding: 1.5rem;
+  text-align: center;
+  max-width: 350px;
+  width: 100%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+}
+
+.detail-card h3 {
+  font-size: 0.8rem;
+  margin: 0.75rem 0 0.25rem;
+}
+
+.detail-rarity {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  margin-bottom: 0.75rem;
+}
+
+.detail-canvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  display: block;
+  margin: 0 auto;
+}
+
+.detail-stats {
+  font-size: 0.8rem;
+  color: var(--text-light);
+  margin-bottom: 1rem;
+  line-height: 1.6;
+}
+
+/* Completion Overlay */
+.completion-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(58, 46, 30, 0.7);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 1rem;
+}
+
+.overlay-visible {
+  display: flex;
+}
+
+.completion-card {
+  background: var(--bg);
+  border: 3px solid var(--legendary);
+  border-radius: 10px;
+  padding: 2rem 1.5rem;
+  text-align: center;
+  max-width: 380px;
+  width: 100%;
+  box-shadow: 0 0 40px rgba(196, 154, 26, 0.3);
+  animation: scaleIn 0.3s ease;
+}
+
+@keyframes scaleIn {
+  from { transform: scale(0.8); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.completion-title {
+  font-size: 0.7rem;
+  color: var(--legendary);
+  margin-bottom: 1rem;
+}
+
+.completion-canvas-wrap {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 1rem;
+}
+
+.completion-name {
+  font-size: 0.85rem;
+  margin-bottom: 0.25rem;
+}
+
+.completion-rarity {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  margin-bottom: 0.75rem;
+}
+
+.completion-stats {
+  font-size: 0.8rem;
+  color: var(--text-light);
+  margin-bottom: 1.25rem;
+  line-height: 1.8;
+}
+
+.completion-stat-bonus {
+  background: var(--bg-dark);
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.completion-stat-bonus .stat-label {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.4rem;
+  color: var(--text-light);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.completion-stat-bonus .stat-value {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.55rem;
+  font-weight: bold;
+}
+
+/* Toast */
+.toast {
+  position: fixed;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--text);
+  color: var(--bg);
+  padding: 0.65rem 1.25rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  z-index: 300;
+  opacity: 0;
+  transition: all 0.3s ease;
+  max-width: 90%;
+  text-align: center;
+  pointer-events: none;
+}
+
+.toast-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.toast-success {
+  background: #2d5a1e;
+}
+
+/* Water drops animation */
+.water-drops {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.water-drop {
+  position: absolute;
+  top: -5px;
+  width: 4px;
+  height: 6px;
+  background: #6ab4e8;
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  animation: dropFall 0.7s ease-in forwards;
+  opacity: 0.8;
+}
+
+@keyframes dropFall {
+  0% { transform: translateY(0); opacity: 0.8; }
+  80% { opacity: 0.6; }
+  100% { transform: translateY(200px); opacity: 0; }
+}
+
+/* Dev Controls */
+.dev-controls {
+  position: fixed;
+  bottom: 0.5rem;
+  right: 0.5rem;
+  z-index: 50;
+}
+
+.dev-toggle {
+  font-size: 0.5rem;
+  padding: 0.3rem 0.5rem;
+  background: #666;
+  color: #fff;
+  border: 1px solid #888;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: monospace;
+  opacity: 0.4;
+}
+
+.dev-toggle:hover {
+  opacity: 1;
+}
+
+.dev-panel {
+  display: none;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.3rem;
+  background: rgba(0, 0, 0, 0.85);
+  padding: 0.5rem;
+  border-radius: 4px;
+}
+
+.dev-open {
+  display: flex;
+}
+
+.dev-btn {
+  font-size: 0.55rem;
+  padding: 0.3rem 0.5rem;
+  background: #444;
+  color: #ddd;
+  border: 1px solid #666;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: monospace;
+}
+
+.dev-btn:hover {
+  background: #555;
+}
+
+/* Inventory Screen */
+.inventory-screen {
+  padding-top: 1.5rem;
+  max-width: 800px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.inventory-section-heading {
+  font-size: 0.55rem;
+  color: var(--accent);
+  margin-bottom: 0.5rem;
+}
+
+.active-boosts-section {
+  width: 100%;
+  margin-bottom: 1rem;
+}
+
+.active-boosts-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.active-boost-card {
+  background: var(--bg-dark);
+  border: 2px solid var(--accent);
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.7rem;
+}
+
+.boost-name {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.35rem;
+  color: var(--accent);
+}
+
+.boost-detail {
+  font-size: 0.7rem;
+  color: var(--text);
+}
+
+.boost-remaining {
+  font-size: 0.65rem;
+  color: var(--text-light);
+}
+
+.inventory-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.inventory-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--bg-dark);
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem 0.5rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+
+.inventory-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px var(--shadow);
+}
+
+.item-icon {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 1.2rem;
+  margin-bottom: 0.4rem;
+}
+
+.item-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.item-card-name {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.4rem;
+}
+
+.item-card-rarity {
+  font-size: 0.65rem;
+  color: var(--text-light);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.item-card-desc {
+  font-size: 0.65rem;
+  color: var(--text-light);
+  line-height: 1.4;
+}
+
+.item-detail-card {
+  max-width: 350px;
+}
+
+.item-detail-icon {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+}
+
+.item-detail-desc {
+  font-size: 0.8rem;
+  color: var(--text-light);
+  margin-bottom: 1rem;
+  line-height: 1.5;
+}
+
+.item-use-btn {
+  margin-bottom: 0.5rem;
+}
+
+/* Picker overlay for item use */
+.picker-card {
+  max-width: 450px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.picker-hint {
+  font-size: 0.75rem;
+  color: var(--text-light);
+  margin-bottom: 0.75rem;
+}
+
+.picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.picker-item {
+  background: var(--bg-dark);
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s;
+}
+
+.picker-item:hover {
+  border-color: var(--accent);
+}
+
+.picker-item-selected {
+  border-color: var(--legendary) !important;
+  background: rgba(196, 154, 26, 0.1);
+  box-shadow: 0 0 8px rgba(196, 154, 26, 0.3);
+}
+
+.picker-item-name {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.35rem;
+  display: block;
+  margin-bottom: 0.15rem;
+}
+
+.picker-item-rarity {
+  font-size: 0.65rem;
+  color: var(--text-light);
+}
+
+/* Completion overlay — item drops */
+.completion-item-drops {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed var(--border);
+}
+
+.drops-heading {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.45rem;
+  color: var(--legendary);
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.dropped-item {
+  background: var(--bg-dark);
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  margin-bottom: 0.4rem;
+  text-align: left;
+}
+
+.dropped-item-name {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.35rem;
+  display: block;
+  margin-bottom: 0.15rem;
+}
+
+.dropped-item-desc {
+  font-size: 0.65rem;
+  color: var(--text-light);
+}
+
+/* Passive tag for legendary day bonus */
+.passive-tag {
+  display: inline-block;
+  background: var(--legendary);
+  color: var(--bg);
+  font-size: 0.25rem;
+  padding: 0.1rem 0.25rem;
+  border-radius: 2px;
+  vertical-align: middle;
+  margin-left: 0.25rem;
+}
+
+/* Garden bonus indicators group */
+.garden-bonus-indicators {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.5rem 0;
+}
+
+.garden-bonus-passive {
+  border-color: var(--legendary) !important;
+}
+
+/* Unique plant styling */
+.garden-card-unique {
+  border-style: double !important;
+  border-width: 3px !important;
+}
+
+.unique-badge {
+  display: inline-block;
+  background: #c0c8d4;
+  color: #3a2e1e;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.25rem;
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.upgraded-badge {
+  display: inline-block;
+  background: var(--accent);
+  color: #fff;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.25rem;
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .plant-screen {
+    padding-top: 1rem;
+  }
+
+  .app-title {
+    font-size: 0.65rem;
+  }
+
+  .plant-name {
+    font-size: 0.8rem;
+  }
+
+  .btn-water {
+    font-size: 0.6rem;
+    padding: 0.75rem 1.25rem;
+  }
+
+  .garden-grid {
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  }
+
+  .gallery-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  }
+
+  .completion-card {
+    padding: 1.25rem 1rem;
+  }
+}

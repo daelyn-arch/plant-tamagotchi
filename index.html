@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plant Tamagotchi</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Plant Screen -->
+  <div id="plantScreen" class="screen plant-screen">
+    <h1 class="app-title">Plant Tamagotchi</h1>
+
+    <div class="plant-display">
+      <div class="plant-canvas-wrap" id="plantCanvasWrap"></div>
+
+      <div class="plant-info">
+        <div class="plant-name" id="plantName">Loading...</div>
+        <div class="plant-rarity" id="plantRarity"></div>
+      </div>
+
+      <div class="progress-bar-wrap">
+        <div class="progress-bar">
+          <div class="progress-fill" id="progressFill"></div>
+          <span class="progress-text" id="progressText">0%</span>
+        </div>
+        <div class="growth-info" id="growthInfo"></div>
+      </div>
+
+      <div class="streak-wrap">
+        <span class="streak-label">Streak:</span>
+        <span class="streak-count" id="streakCount">0 days</span>
+        <span class="streak-bonus" id="streakBonus" style="display:none"></span>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-water" id="waterBtn">Water Your Plant</button>
+      <div class="secondary-actions">
+        <button class="btn" id="gardenBtn">View Garden</button>
+        <button class="btn" id="inventoryBtn">Inventory</button>
+        <button class="btn" id="galleryBtn">Species Gallery</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Garden Screen -->
+  <div id="gardenScreen" class="screen garden-screen">
+    <div id="gardenContainer"></div>
+  </div>
+
+  <!-- Inventory Screen -->
+  <div id="inventoryScreen" class="screen inventory-screen">
+    <div id="inventoryContainer"></div>
+  </div>
+
+  <!-- Species Gallery Screen -->
+  <div id="galleryScreen" class="screen gallery-screen">
+    <div id="galleryContainer"></div>
+  </div>
+
+  <!-- Completion Overlay -->
+  <div id="completionOverlay" class="completion-overlay">
+    <div class="completion-card">
+      <h2 class="completion-title">Plant Complete!</h2>
+      <div class="completion-canvas-wrap" id="completionCanvasWrap"></div>
+      <div class="completion-name" id="completionName"></div>
+      <div class="completion-rarity" id="completionRarity"></div>
+      <div class="completion-stats" id="completionStats"></div>
+      <button class="btn btn-water" id="moveToGardenBtn">Move to Garden</button>
+    </div>
+  </div>
+
+  <!-- Dev Controls -->
+  <div class="dev-controls">
+    <div class="dev-panel" id="devPanel">
+      <button class="dev-btn" id="devAdvance1">+1 Day</button>
+      <button class="dev-btn" id="devAdvance7">+7 Days</button>
+      <button class="dev-btn" id="devComplete">Complete</button>
+      <button class="dev-btn" id="devNewPlant">New Plant</button>
+      <button class="dev-btn" id="devAllItems">+All Items</button>
+      <button class="dev-btn" id="devAllPlants">+All Plants</button>
+      <button class="dev-btn" id="devReset">Reset All</button>
+    </div>
+    <button class="dev-toggle" id="devToggle">DEV</button>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
