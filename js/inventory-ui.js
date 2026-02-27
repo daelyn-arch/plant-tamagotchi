@@ -5,9 +5,12 @@ import { RARITY_COLORS, RARITY } from './plant-data.js';
 import {
   ITEM_TYPES, RARITY_ORDER,
   useBoostItem, useAutoWater, useArtReroll, useGardenUpgrade, combinePlants,
-  removeItem,
+  useAnimate, removeItem,
 } from './items.js';
-import { stopAllAnimators } from './animation.js';
+import { PlantAnimator, stopAllAnimators } from './animation.js';
+import { renderPlantScaled } from './plant-generator.js';
+import { renderGardenPicker } from './garden.js';
+import { showScreen } from './ui.js';
 
 // Callbacks set by main.js
 let _onItemUsed = null;
@@ -138,6 +141,8 @@ function getUseLabel(item, state) {
       return state.garden.length > 0 ? 'Upgrade a Plant' : null;
     case 'plant_combine':
       return state.garden.length >= 2 ? 'Combine Plants' : null;
+    case 'animate':
+      return 'Animate Plant';
     default:
       return null;
   }
@@ -170,6 +175,10 @@ function handleItemUse(container, item) {
       showPlantPicker(container, item, state, 'reroll');
       break;
     }
+    case 'animate': {
+      showPlantPicker(container, item, state, 'animate');
+      break;
+    }
     case 'garden_upgrade': {
       showPlantPicker(container, item, state, 'upgrade');
       break;
@@ -182,149 +191,380 @@ function handleItemUse(container, item) {
 }
 
 function showPlantPicker(container, item, state, mode) {
-  const overlay = document.createElement('div');
-  overlay.className = 'detail-overlay';
-
-  const plants = mode === 'reroll'
-    ? [
-        ...(state.currentPlant ? [{ ...state.currentPlant, _isCurrent: true }] : []),
-        ...state.garden,
-      ]
+  const gardenContainer = document.getElementById('gardenContainer');
+  const plants = (mode === 'reroll' || mode === 'animate')
+    ? [...state.garden, ...(state.currentPlant ? [state.currentPlant] : [])]
     : state.garden;
 
-  const title = mode === 'reroll' ? 'Choose plant to reroll' : 'Choose plant to upgrade';
+  const title = mode === 'reroll' ? 'Reroll Appearance'
+    : mode === 'animate' ? 'Animate Plant'
+    : 'Upgrade Plant';
+  const hint = mode === 'reroll'
+    ? 'Select a plant to change its appearance.'
+    : mode === 'animate'
+    ? 'Select a plant to bring to life!'
+    : 'Select a plant to permanently boost its bonus by 50%.';
 
-  let html = `<div class="detail-card picker-card">
-    <h3>${title}</h3>
-    <div class="picker-grid">`;
+  showScreen('gardenScreen');
 
-  for (const p of plants) {
-    const label = p._isCurrent ? `${p.species} (Current)` : p.species;
-    const color = p.unique ? '#c0c8d4' : (RARITY_COLORS[p.rarity] || '#6b7b3a');
-    html += `
-      <div class="picker-item" data-plant-id="${p.id}" data-is-current="${!!p._isCurrent}">
-        <span class="picker-item-name" style="color:${color}">${label}</span>
-        <span class="picker-item-rarity">${p.rarity}</span>
-      </div>
-    `;
-  }
-
-  html += `</div>
-    <button class="btn btn-close-detail">Cancel</button>
-  </div>`;
-
-  overlay.innerHTML = html;
-  container.appendChild(overlay);
-
-  const close = () => overlay.remove();
-  overlay.querySelector('.btn-close-detail').addEventListener('click', close);
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) close();
-  });
-
-  overlay.querySelectorAll('.picker-item').forEach(el => {
-    el.addEventListener('click', () => {
-      const plantId = el.dataset.plantId;
+  renderGardenPicker(gardenContainer, {
+    title,
+    hint,
+    plants,
+    maxSelections: 1,
+    eligible: (p) => mode === 'animate' ? !p.animated : true,
+    onConfirm: (ids) => {
       const freshState = loadState();
-
+      let success = false;
       if (mode === 'reroll') {
-        if (useArtReroll(freshState, item.id, plantId)) {
-          saveState(freshState);
-          showItemToast('Appearance rerolled!');
-          close();
-          renderInventoryView(container);
-          if (_onItemUsed) _onItemUsed();
-        }
-      } else if (mode === 'upgrade') {
-        if (useGardenUpgrade(freshState, item.id, plantId)) {
-          saveState(freshState);
-          showItemToast('Plant upgraded! +50% bonus contribution.');
-          close();
-          renderInventoryView(container);
-          if (_onItemUsed) _onItemUsed();
+        success = useArtReroll(freshState, item.id, ids[0]);
+      } else if (mode === 'animate') {
+        success = useAnimate(freshState, item.id, ids[0]);
+      } else {
+        success = useGardenUpgrade(freshState, item.id, ids[0]);
+      }
+      if (success) {
+        saveState(freshState);
+        if (_onItemUsed) _onItemUsed();
+        // Find the updated plant to display
+        const updatedState = loadState();
+        const resultPlant = updatedState.garden.find(p => p.id === ids[0])
+          || (updatedState.currentPlant && updatedState.currentPlant.id === ids[0] ? updatedState.currentPlant : null);
+        if (resultPlant && (mode === 'reroll' || mode === 'animate')) {
+          const heading = mode === 'animate' ? 'Plant Awakened!' : 'New Appearance';
+          showResultPlant(gardenContainer, resultPlant, heading, () => {
+            showScreen('inventoryScreen');
+            renderInventoryView(container);
+          });
+          return;
         }
       }
-    });
+      showScreen('inventoryScreen');
+      renderInventoryView(container);
+    },
+    onCancel: () => {
+      showScreen('inventoryScreen');
+      renderInventoryView(container);
+    },
   });
 }
 
 function showCombinePicker(container, item, state) {
-  const overlay = document.createElement('div');
-  overlay.className = 'detail-overlay';
-
-  // Filter plants by rarity gate
   const gateIdx = RARITY_ORDER.indexOf(item.combineGate || item.rarity);
-  const eligible = state.garden.filter(p => RARITY_ORDER.indexOf(p.rarity) <= gateIdx);
+  const allPlants = state.garden;
+  const isEligible = (p) => RARITY_ORDER.indexOf(p.rarity) <= gateIdx;
 
-  if (eligible.length < 2) {
+  if (allPlants.filter(isEligible).length < 2) {
     showItemToast('Not enough eligible plants to combine.');
     return;
   }
 
-  let selectedIds = [];
+  const gardenContainer = document.getElementById('gardenContainer');
+  showScreen('gardenScreen');
 
-  function renderPicker() {
-    let html = `<div class="detail-card picker-card">
-      <h3>Select 2 plants to combine</h3>
-      <p class="picker-hint">Max rarity: ${item.combineGate || item.rarity}. Both plants will be consumed.</p>
-      <div class="picker-grid">`;
-
-    for (const p of eligible) {
-      const selected = selectedIds.includes(p.id);
-      const color = p.unique ? '#c0c8d4' : (RARITY_COLORS[p.rarity] || '#6b7b3a');
-      html += `
-        <div class="picker-item ${selected ? 'picker-item-selected' : ''}" data-plant-id="${p.id}">
-          <span class="picker-item-name" style="color:${color}">${p.species}</span>
-          <span class="picker-item-rarity">${p.rarity}</span>
-        </div>
-      `;
-    }
-
-    html += `</div>
-      ${selectedIds.length === 2 ? '<button class="btn btn-water" id="confirmCombine">Combine!</button>' : ''}
-      <button class="btn btn-close-detail">Cancel</button>
-    </div>`;
-
-    overlay.innerHTML = html;
-
-    // Wire events
-    overlay.querySelector('.btn-close-detail').addEventListener('click', close);
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) close();
-    });
-
-    overlay.querySelectorAll('.picker-item').forEach(el => {
-      el.addEventListener('click', () => {
-        const pid = el.dataset.plantId;
-        if (selectedIds.includes(pid)) {
-          selectedIds = selectedIds.filter(id => id !== pid);
-        } else if (selectedIds.length < 2) {
-          selectedIds.push(pid);
-        }
-        renderPicker();
-      });
-    });
-
-    const confirmBtn = overlay.querySelector('#confirmCombine');
-    if (confirmBtn) {
-      confirmBtn.addEventListener('click', () => {
-        if (!confirm('Both source plants will be removed. Continue?')) return;
-        const freshState = loadState();
-        const result = combinePlants(freshState, item.id, selectedIds[0], selectedIds[1]);
-        if (result) {
-          saveState(freshState);
-          showItemToast(`Created Unique ${result.uniqueBase} ${result.species}!`);
-          close();
+  renderGardenPicker(gardenContainer, {
+    title: 'Combine Plants',
+    hint: `Select 2 plants to fuse (max rarity: ${item.combineGate || item.rarity}). Both will be consumed.`,
+    plants: allPlants,
+    maxSelections: 2,
+    eligible: isEligible,
+    onConfirm: (ids) => {
+      const freshState = loadState();
+      // Capture source plants before they're consumed
+      const src1 = freshState.garden.find(p => p.id === ids[0]);
+      const src2 = freshState.garden.find(p => p.id === ids[1]);
+      const sourcePlants = [src1, src2].filter(Boolean).map(p => ({ ...p }));
+      const result = combinePlants(freshState, item.id, ids[0], ids[1]);
+      if (result) {
+        saveState(freshState);
+        if (_onItemUsed) _onItemUsed();
+        showFusionSequence(gardenContainer, sourcePlants, result, () => {
+          showScreen('inventoryScreen');
           renderInventoryView(container);
-          if (_onItemUsed) _onItemUsed();
-        }
+        });
+        return;
+      }
+      showScreen('inventoryScreen');
+      renderInventoryView(container);
+    },
+    onCancel: () => {
+      showScreen('inventoryScreen');
+      renderInventoryView(container);
+    },
+  });
+}
+
+function showFusionSequence(container, sourcePlants, resultPlant, onDismiss) {
+  stopAllAnimators();
+  container.innerHTML = '';
+
+  const stage = document.createElement('div');
+  stage.className = 'fusion-stage';
+  container.appendChild(stage);
+
+  // -- Particle canvas (behind everything) --
+  const particleCanvas = document.createElement('canvas');
+  particleCanvas.className = 'fusion-particles';
+  particleCanvas.width = 400;
+  particleCanvas.height = 400;
+  stage.appendChild(particleCanvas);
+  const pctx = particleCanvas.getContext('2d');
+  let particles = [];
+  let particleRAF = null;
+
+  function spawnParticles(cx, cy, count, color, speed, life) {
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const v = speed * (0.5 + Math.random());
+      particles.push({
+        x: cx, y: cy,
+        vx: Math.cos(angle) * v,
+        vy: Math.sin(angle) * v,
+        life, maxLife: life,
+        color,
+        size: 2 + Math.random() * 3,
       });
     }
   }
 
-  const close = () => overlay.remove();
-  container.appendChild(overlay);
-  renderPicker();
+  function spawnConvergeParticles(cx, cy, count, color) {
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 80 + Math.random() * 120;
+      particles.push({
+        x: cx + Math.cos(angle) * dist,
+        y: cy + Math.sin(angle) * dist,
+        vx: -Math.cos(angle) * 1.5,
+        vy: -Math.sin(angle) * 1.5,
+        life: 60, maxLife: 60,
+        color,
+        size: 1.5 + Math.random() * 2.5,
+      });
+    }
+  }
+
+  function animateParticles() {
+    pctx.clearRect(0, 0, 400, 400);
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      p.life--;
+      if (p.life <= 0) { particles.splice(i, 1); continue; }
+      const alpha = p.life / p.maxLife;
+      pctx.globalAlpha = alpha;
+      pctx.fillStyle = p.color;
+      pctx.beginPath();
+      pctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
+      pctx.fill();
+    }
+    pctx.globalAlpha = 1;
+    particleRAF = requestAnimationFrame(animateParticles);
+  }
+  animateParticles();
+
+  // -- Source plants (left and right) --
+  const leftPlant = document.createElement('div');
+  leftPlant.className = 'fusion-source fusion-source-left';
+  const leftCanvas = document.createElement('div');
+  leftCanvas.className = 'fusion-source-canvas';
+  leftPlant.appendChild(leftCanvas);
+  stage.appendChild(leftPlant);
+
+  const rightPlant = document.createElement('div');
+  rightPlant.className = 'fusion-source fusion-source-right';
+  const rightCanvas = document.createElement('div');
+  rightCanvas.className = 'fusion-source-canvas';
+  rightPlant.appendChild(rightCanvas);
+  stage.appendChild(rightPlant);
+
+  // -- Flash overlay --
+  const flash = document.createElement('div');
+  flash.className = 'fusion-flash';
+  stage.appendChild(flash);
+
+  // -- Result container (hidden initially) --
+  const resultWrap = document.createElement('div');
+  resultWrap.className = 'fusion-result';
+  const resultCanvas = document.createElement('div');
+  resultCanvas.className = 'fusion-result-canvas';
+  resultWrap.appendChild(resultCanvas);
+
+  const displayRarity = resultPlant.unique ? `Unique ${resultPlant.uniqueBase || resultPlant.rarity}` : resultPlant.rarity;
+  const displayColor = resultPlant.unique ? '#c0c8d4' : RARITY_COLORS[resultPlant.rarity];
+
+  const resultInfo = document.createElement('div');
+  resultInfo.className = 'fusion-result-info';
+  resultInfo.innerHTML = `
+    <span class="fusion-result-name" style="color:${displayColor}">${resultPlant.species}</span>
+    <span class="fusion-result-rarity">${displayRarity}</span>
+    ${resultPlant.unique ? '<span class="unique-badge">Unique</span>' : ''}
+  `;
+  resultWrap.appendChild(resultInfo);
+
+  const btn = document.createElement('button');
+  btn.className = 'btn btn-water fusion-continue-btn';
+  btn.textContent = 'Continue';
+  btn.addEventListener('click', () => {
+    cancelAnimationFrame(particleRAF);
+    stopAllAnimators();
+    onDismiss();
+  });
+  resultWrap.appendChild(btn);
+  stage.appendChild(resultWrap);
+
+  // -- Glow ring behind result --
+  const glowRing = document.createElement('div');
+  glowRing.className = 'fusion-glow-ring';
+  stage.appendChild(glowRing);
+
+  // -- Sequence timing --
+  const animators = [];
+
+  // STAGE 1 (0ms): Source plants slide in
+  if (sourcePlants[0]) {
+    const a1 = new PlantAnimator(leftCanvas, sourcePlants[0], 3, { mini: true });
+    a1.start();
+    animators.push(a1);
+  }
+  if (sourcePlants[1]) {
+    const a2 = new PlantAnimator(rightCanvas, sourcePlants[1], 3, { mini: true });
+    a2.start();
+    animators.push(a2);
+  }
+
+  // STAGE 2 (800ms): Plants converge, energy particles
+  setTimeout(() => {
+    leftPlant.classList.add('fusion-converge');
+    rightPlant.classList.add('fusion-converge');
+    // Spawn swirling energy particles
+    const colors = ['#c0c8d4', '#9ab4cc', '#d4c8b0', '#ffffff', '#e8d070'];
+    for (let i = 0; i < 5; i++) {
+      setTimeout(() => {
+        spawnConvergeParticles(200, 180, 12, colors[i % colors.length]);
+      }, i * 150);
+    }
+  }, 800);
+
+  // STAGE 3 (2200ms): Plants shrink and fade, energy intensifies
+  setTimeout(() => {
+    leftPlant.classList.add('fusion-dissolve');
+    rightPlant.classList.add('fusion-dissolve');
+    // Burst of particles at center
+    const burstColors = ['#ffffff', '#c0c8d4', '#e8d070', '#9ab4cc', '#f0e0a0'];
+    for (const c of burstColors) {
+      spawnParticles(200, 180, 15, c, 2.5, 40);
+    }
+  }, 2200);
+
+  // STAGE 4 (3000ms): Flash
+  setTimeout(() => {
+    flash.classList.add('fusion-flash-active');
+    // Massive particle burst
+    spawnParticles(200, 180, 60, '#ffffff', 4, 50);
+    spawnParticles(200, 180, 40, '#e8d070', 3, 60);
+    spawnParticles(200, 180, 30, '#c0c8d4', 2, 70);
+  }, 3000);
+
+  // STAGE 5 (3500ms): Flash fades, result regrows from seed
+  setTimeout(() => {
+    flash.classList.remove('fusion-flash-active');
+    flash.classList.add('fusion-flash-fade');
+
+    // Hide source plants
+    leftPlant.style.display = 'none';
+    rightPlant.style.display = 'none';
+    for (const a of animators) a.stop();
+
+    // Show result container
+    glowRing.classList.add('fusion-glow-active');
+    resultWrap.classList.add('fusion-result-reveal');
+
+    // Rapid growth animation — plant regrows from seed
+    const growthStages = [0.05, 0.15, 0.3, 0.45, 0.6, 0.75, 0.9, 1.0];
+    let stageIdx = 0;
+    const growthScale = 5;
+
+    function renderGrowthFrame() {
+      const gs = growthStages[stageIdx];
+      // Clear previous frame
+      resultCanvas.innerHTML = '';
+      const frame = renderPlantScaled(resultPlant, gs, growthScale);
+      frame.className = 'plant-canvas';
+      frame.style.imageRendering = 'pixelated';
+      resultCanvas.appendChild(frame);
+      stageIdx++;
+    }
+
+    // Show first frame (seed/pot)
+    renderGrowthFrame();
+
+    // Animate through remaining stages
+    const growthTimer = setInterval(() => {
+      if (stageIdx >= growthStages.length) {
+        clearInterval(growthTimer);
+        // Switch to animated PlantAnimator at full growth
+        resultCanvas.innerHTML = '';
+        const resultAnimator = new PlantAnimator(resultCanvas, resultPlant, growthScale);
+        resultAnimator.start();
+        return;
+      }
+      renderGrowthFrame();
+
+      // Spawn particles on each growth tick
+      const colors = ['#c0c8d4', '#9ab4cc', '#d4dce8', '#e8e0f0'];
+      spawnParticles(200, 180, 5, colors[stageIdx % colors.length], 1.2, 35);
+    }, 250);
+
+    // Celebration particles once fully grown
+    setTimeout(() => {
+      const celebInterval = setInterval(() => {
+        const colors = ['#c0c8d4', '#e8d070', '#9ab4cc', '#ffffff', '#d4b870'];
+        spawnParticles(200, 180, 8, colors[Math.floor(Math.random() * colors.length)], 1.5, 50);
+      }, 200);
+      setTimeout(() => clearInterval(celebInterval), 3000);
+    }, growthStages.length * 250 + 200);
+  }, 3500);
+}
+
+function showResultPlant(container, plant, heading, onDismiss) {
+  stopAllAnimators();
+  container.innerHTML = '';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'result-plant-screen';
+
+  const title = document.createElement('h2');
+  title.className = 'result-plant-title';
+  title.textContent = heading;
+  wrap.appendChild(title);
+
+  const canvasWrap = document.createElement('div');
+  canvasWrap.className = 'result-plant-canvas';
+  wrap.appendChild(canvasWrap);
+
+  const displayRarity = plant.unique ? `Unique ${plant.uniqueBase || plant.rarity}` : plant.rarity;
+  const displayColor = plant.unique ? '#c0c8d4' : RARITY_COLORS[plant.rarity];
+
+  const info = document.createElement('div');
+  info.className = 'result-plant-info';
+  info.innerHTML = `
+    <span class="result-plant-name" style="color:${displayColor}">${plant.species}</span>
+    <span class="result-plant-rarity">${displayRarity}</span>
+    ${plant.unique ? '<span class="unique-badge">Unique</span>' : ''}
+  `;
+  wrap.appendChild(info);
+
+  const btn = document.createElement('button');
+  btn.className = 'btn btn-water';
+  btn.textContent = 'Continue';
+  btn.addEventListener('click', onDismiss);
+  wrap.appendChild(btn);
+
+  container.appendChild(wrap);
+
+  const animator = new PlantAnimator(canvasWrap, plant, 5);
+  animator.start();
 }
 
 function showItemToast(message) {

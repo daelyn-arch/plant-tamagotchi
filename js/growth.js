@@ -31,7 +31,8 @@ export function wateringBonusCapRaw(garden) {
   let cap = 0;
   for (const plant of garden) {
     const mult = plant.upgradeMultiplier || 1;
-    cap += (WATERING_BONUS_VALUES[plant.rarity] || 0) * mult;
+    const base = plant.bonusWatering != null ? plant.bonusWatering : (WATERING_BONUS_VALUES[plant.rarity] || 0);
+    cap += base * mult;
   }
   return cap;
 }
@@ -45,18 +46,21 @@ export function dayBonusCapRaw(garden) {
   let cap = 0;
   for (const plant of garden) {
     const mult = plant.upgradeMultiplier || 1;
-    cap += (DAY_BONUS_VALUES[plant.rarity] || 0) * mult;
+    const base = plant.bonusDay != null ? plant.bonusDay : (DAY_BONUS_VALUES[plant.rarity] || 0);
+    cap += base * mult;
   }
   return cap;
 }
 
-// Legendary passive cap — sum of DAY_BONUS_VALUES for Legendary plants only (floored)
+// Legendary passive cap — sum of day bonus for Legendary plants (or plants with passive flag)
 export function legendaryPassiveCap(garden) {
   let cap = 0;
   for (const plant of garden) {
-    if (plant.rarity === RARITY.LEGENDARY) {
+    const isPassive = plant.rarity === RARITY.LEGENDARY || plant.bonusPassive;
+    if (isPassive) {
       const mult = plant.upgradeMultiplier || 1;
-      cap += (DAY_BONUS_VALUES[plant.rarity] || 0) * mult;
+      const base = plant.bonusDay != null ? plant.bonusDay : (DAY_BONUS_VALUES[plant.rarity] || 0);
+      cap += base * mult;
     }
   }
   return Math.floor(cap);

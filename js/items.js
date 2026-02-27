@@ -1,6 +1,7 @@
 // Item definitions, drop logic, and item utility functions
 
 import { RARITY } from './plant-data.js';
+import { WATERING_BONUS_VALUES, DAY_BONUS_VALUES } from './growth.js';
 
 // Duration scaling: how many plants a consumable lasts based on item rarity
 const DURATION_BY_RARITY = {
@@ -84,6 +85,15 @@ export const ITEM_TYPES = {
     },
     value: 1,
   },
+  animate: {
+    name: 'Life Spark',
+    icon: '@',
+    description: 'Brings a plant to life with a charming face!',
+    getDescription() {
+      return 'Permanently gives a plant a cute face (cosmetic).';
+    },
+    value: 1,
+  },
 };
 
 // Create an item instance
@@ -110,31 +120,31 @@ const DROP_TABLES = {
     chance: 0.10,
     secondChance: 0,
     maxItemRarity: 0, // Common only
-    weights: { watering_boost: 30, day_boost: 10, art_reroll: 20, auto_water: 5, garden_upgrade: 3, plant_combine: 2 },
+    weights: { watering_boost: 30, day_boost: 10, art_reroll: 20, auto_water: 5, garden_upgrade: 3, plant_combine: 2, animate: 3 },
   },
   [RARITY.UNCOMMON]: {
     chance: 0.25,
     secondChance: 0,
     maxItemRarity: 1, // Up to Uncommon
-    weights: { watering_boost: 25, day_boost: 15, art_reroll: 20, auto_water: 10, garden_upgrade: 5, plant_combine: 5 },
+    weights: { watering_boost: 25, day_boost: 15, art_reroll: 20, auto_water: 10, garden_upgrade: 5, plant_combine: 5, animate: 5 },
   },
   [RARITY.RARE]: {
     chance: 0.50,
     secondChance: 0,
     maxItemRarity: 2, // Up to Rare
-    weights: { watering_boost: 20, day_boost: 20, art_reroll: 15, auto_water: 15, garden_upgrade: 10, plant_combine: 10 },
+    weights: { watering_boost: 20, day_boost: 20, art_reroll: 15, auto_water: 15, garden_upgrade: 10, plant_combine: 10, animate: 5 },
   },
   [RARITY.EPIC]: {
     chance: 0.75,
     secondChance: 0.25,
     maxItemRarity: 3, // Up to Epic
-    weights: { watering_boost: 15, day_boost: 20, art_reroll: 10, auto_water: 15, garden_upgrade: 15, plant_combine: 15 },
+    weights: { watering_boost: 15, day_boost: 20, art_reroll: 10, auto_water: 15, garden_upgrade: 15, plant_combine: 15, animate: 5 },
   },
   [RARITY.LEGENDARY]: {
     chance: 1.0,
     secondChance: 0.50,
     maxItemRarity: 4, // Any rarity
-    weights: { watering_boost: 10, day_boost: 15, art_reroll: 10, auto_water: 15, garden_upgrade: 20, plant_combine: 20 },
+    weights: { watering_boost: 10, day_boost: 15, art_reroll: 10, auto_water: 15, garden_upgrade: 20, plant_combine: 20, animate: 5 },
   },
 };
 
@@ -223,6 +233,25 @@ export function useAutoWater(state, itemId) {
   return true;
 }
 
+// Use animate item — gives a plant a face
+export function useAnimate(state, itemId, plantId) {
+  const item = state.items.find(i => i.id === itemId && i.type === 'animate');
+  if (!item) return false;
+
+  let target = null;
+  if (state.currentPlant && state.currentPlant.id === plantId) {
+    target = state.currentPlant;
+  } else {
+    target = state.garden.find(p => p.id === plantId);
+  }
+  if (!target) return false;
+  if (target.animated) return false; // already animated
+
+  target.animated = true;
+  removeItem(state, itemId);
+  return true;
+}
+
 // Use art reroll on a plant (current or garden)
 export function useArtReroll(state, itemId, plantId) {
   const item = state.items.find(i => i.id === itemId && i.type === 'art_reroll');
@@ -275,15 +304,30 @@ export function combinePlants(state, itemId, plantId1, plantId2) {
   // Pick species from the higher rarity tier
   const higherPlant = rarityIndex(p1.rarity) >= rarityIndex(p2.rarity) ? p1 : p2;
 
+  // Combine bonuses from both source plants
+  const getW = p => (p.bonusWatering != null ? p.bonusWatering : (WATERING_BONUS_VALUES[p.rarity] || 0)) * (p.upgradeMultiplier || 1);
+  const getD = p => (p.bonusDay != null ? p.bonusDay : (DAY_BONUS_VALUES[p.rarity] || 0)) * (p.upgradeMultiplier || 1);
+  const combinedWatering = getW(p1) + getW(p2);
+  const combinedDay = getD(p1) + getD(p2);
+  const hasPassive = p1.rarity === RARITY.LEGENDARY || p2.rarity === RARITY.LEGENDARY || p1.bonusPassive || p2.bonusPassive;
+
+  // Derive hybrid seed from both parents — deterministic combination
+  const newSeed = ((p1.seed * 2654435761) ^ (p2.seed * 1597334677) ^ (Date.now() & 0xffff)) & 0x7fffffff;
+
+  // Store fusion parent traits for hybrid rendering
+  const fusionParents = [
+    { species: p1.species, rarity: p1.rarity, leafType: p1.leafType, hasFlowers: p1.hasFlowers, complexity: p1.complexity, seed: p1.seed, wasUnique: !!p1.unique },
+    { species: p2.species, rarity: p2.rarity, leafType: p2.leafType, hasFlowers: p2.hasFlowers, complexity: p2.complexity, seed: p2.seed, wasUnique: !!p2.unique },
+  ];
+
   // Generate unique plant
-  const newSeed = (Date.now() + Math.floor(Math.random() * 1000000)) & 0x7fffffff;
   const uniquePlant = {
     id: Date.now().toString(36) + newSeed.toString(36),
     seed: newSeed,
     species: higherPlant.species,
     rarity: baseRarity,
-    complexity: higherPlant.complexity,
-    hasFlowers: higherPlant.hasFlowers,
+    complexity: Math.max(p1.complexity || 2, p2.complexity || 2),
+    hasFlowers: p1.hasFlowers || p2.hasFlowers,
     leafType: higherPlant.leafType,
     name: higherPlant.species,
     totalDaysRequired: higherPlant.totalDaysRequired,
@@ -294,6 +338,11 @@ export function combinePlants(state, itemId, plantId1, plantId2) {
     dateCompleted: new Date().toISOString().slice(0, 10),
     unique: true,
     uniqueBase: baseRarity,
+    fusionParents,
+    bonusWatering: combinedWatering,
+    bonusDay: combinedDay,
+    bonusPassive: hasPassive,
+    animated: !!(p1.animated || p2.animated),
     autoWater: false,
   };
 

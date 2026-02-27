@@ -17,6 +17,7 @@ import { renderInventoryView, setOnItemUsed, setOnInventoryBack } from './invent
 import { stopAllAnimators } from './animation.js';
 import { ITEM_TYPES, createItem } from './items.js';
 import { renderItemGallery, setOnItemGalleryBack } from './item-gallery.js';
+import { renderInfoPanel, setOnInfoBack } from './info-panel.js';
 import { SPECIES, RARITY } from './plant-data.js';
 
 let currentScreen = 'plant';
@@ -59,6 +60,11 @@ function init() {
     switchToItemGallery();
   });
 
+  // Info button
+  document.getElementById('infoBtn').addEventListener('click', () => {
+    switchToInfo();
+  });
+
   // Completion overlay "Move to Garden" button
   document.getElementById('moveToGardenBtn').addEventListener('click', handleMoveToGarden);
 
@@ -75,6 +81,11 @@ function init() {
     updatePlantView(loadState());
   });
   setOnItemGalleryBack(() => {
+    currentScreen = 'plant';
+    showScreen('plantScreen');
+    updatePlantView(loadState());
+  });
+  setOnInfoBack(() => {
     currentScreen = 'plant';
     showScreen('plantScreen');
     updatePlantView(loadState());
@@ -182,6 +193,13 @@ function switchToItemGallery() {
   renderItemGallery(container);
 }
 
+function switchToInfo() {
+  currentScreen = 'info';
+  showScreen('infoScreen');
+  const container = document.getElementById('infoContainer');
+  renderInfoPanel(container);
+}
+
 function switchToGallery() {
   currentScreen = 'gallery';
   showScreen('galleryScreen');
@@ -242,7 +260,7 @@ function setupDevControls() {
     if (!state.items) state.items = [];
     const types = Object.keys(ITEM_TYPES);
     for (const type of types) {
-      state.items.push(createItem(type, RARITY.RARE));
+      state.items.push(createItem(type, RARITY.LEGENDARY));
     }
     saveState(state);
     showToast(`DEV: Added ${types.length} items (1 of each type)`, 'info');

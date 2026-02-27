@@ -3,7 +3,7 @@
 import { loadState } from './state.js';
 import { RARITY, RARITY_COLORS } from './plant-data.js';
 import { PlantAnimator, stopAllAnimators } from './animation.js';
-import { wateringBonusCapRaw, dayBonusCapRaw, legendaryPassiveCap } from './growth.js';
+import { WATERING_BONUS_VALUES, DAY_BONUS_VALUES, wateringBonusCapRaw, dayBonusCapRaw, legendaryPassiveCap } from './growth.js';
 
 const SORT_MODES = ['date', 'rarity', 'species'];
 const RARITY_ORDER = [RARITY.COMMON, RARITY.UNCOMMON, RARITY.RARE, RARITY.EPIC, RARITY.LEGENDARY];
@@ -110,7 +110,7 @@ export function renderGardenView(container) {
     return;
   }
 
-  // Sort controls
+  // Sort controls + bonus toggle
   const sortBar = document.createElement('div');
   sortBar.className = 'sort-bar';
   sortBar.innerHTML = `
@@ -119,8 +119,11 @@ export function renderGardenView(container) {
       (m) =>
         `<button class="btn btn-sm sort-btn" data-sort="${m}">${m.charAt(0).toUpperCase() + m.slice(1)}</button>`
     ).join('')}
+    <button class="btn btn-sm bonus-toggle-btn" id="bonusToggle">Show Bonuses</button>
   `;
   container.appendChild(sortBar);
+
+  let showBonuses = false;
 
   // Grid
   const grid = document.createElement('div');
@@ -164,8 +167,30 @@ export function renderGardenView(container) {
         ${plant.upgradeMultiplier && plant.upgradeMultiplier > 1 ? '<span class="upgraded-badge">Upgraded</span>' : ''}
       `;
 
+      // Bonus overlay
+      const mult = plant.upgradeMultiplier || 1;
+      const wBase = plant.bonusWatering != null ? plant.bonusWatering : (WATERING_BONUS_VALUES[plant.rarity] || 0);
+      const dBase = plant.bonusDay != null ? plant.bonusDay : (DAY_BONUS_VALUES[plant.rarity] || 0);
+      const wVal = wBase * mult;
+      const dVal = dBase * mult;
+      const isLeg = plant.rarity === RARITY.LEGENDARY || plant.bonusPassive;
+
+      const bonusEl = document.createElement('div');
+      bonusEl.className = 'garden-card-bonus';
+      if (!showBonuses) bonusEl.style.display = 'none';
+
+      let bonusLines = [];
+      const fmt = v => v % 1 === 0 ? v : v.toFixed(2);
+      if (wVal > 0) bonusLines.push(`<span class="gcb-water">Watering +${fmt(wVal)}</span>`);
+      if (dVal > 0) bonusLines.push(`<span class="gcb-day">Day +${fmt(dVal)}</span>`);
+      if (isLeg) bonusLines.push(`<span class="gcb-passive">Passive +${fmt(dVal)}/day</span>`);
+      if (mult > 1) bonusLines.push(`<span class="gcb-mult">Upgraded ${mult.toFixed(1)}x</span>`);
+      if (bonusLines.length === 0) bonusLines.push(`<span class="gcb-none">No bonus</span>`);
+      bonusEl.innerHTML = bonusLines.join('');
+
       card.appendChild(canvasWrap);
       card.appendChild(info);
+      card.appendChild(bonusEl);
 
       // Click for details
       card.addEventListener('click', () => showPlantDetail(container, plant));
@@ -187,6 +212,211 @@ export function renderGardenView(container) {
   });
   // Default active
   sortBar.querySelector('[data-sort="date"]').classList.add('active');
+
+  // Bonus toggle
+  const bonusToggle = sortBar.querySelector('#bonusToggle');
+  bonusToggle.addEventListener('click', () => {
+    showBonuses = !showBonuses;
+    bonusToggle.textContent = showBonuses ? 'Hide Bonuses' : 'Show Bonuses';
+    bonusToggle.classList.toggle('active', showBonuses);
+    grid.querySelectorAll('.garden-card-bonus').forEach(el => {
+      el.style.display = showBonuses ? '' : 'none';
+    });
+  });
+}
+
+// ── Garden Picker Mode ──────────────────────────────────────────
+// Renders the garden grid in selection mode for item use (reroll, upgrade, combine)
+
+export function renderGardenPicker(container, opts) {
+  // opts: { title, hint, plants, maxSelections, eligible(plant)->bool, onConfirm([ids]), onCancel }
+  stopAllAnimators();
+  container.innerHTML = '';
+
+  const { title, hint, plants, maxSelections, eligible, onConfirm, onCancel } = opts;
+  let selectedIds = [];
+
+  // Header banner
+  const banner = document.createElement('div');
+  banner.className = 'picker-banner';
+  container.appendChild(banner);
+
+  // Grid
+  const grid = document.createElement('div');
+  grid.className = 'garden-grid';
+  container.appendChild(grid);
+
+  function updateBanner() {
+    const countText = maxSelections > 1
+      ? `(${selectedIds.length}/${maxSelections} selected)`
+      : '';
+    banner.innerHTML = `
+      <h2>${title}</h2>
+      <p class="picker-banner-hint">${hint} ${countText}</p>
+      <div class="picker-banner-actions">
+        <button class="btn" id="pickerCancel">Cancel</button>
+      </div>
+    `;
+    banner.querySelector('#pickerCancel').addEventListener('click', onCancel);
+  }
+
+  function checkSelectionComplete() {
+    if (selectedIds.length === maxSelections) {
+      const selectedPlants = selectedIds.map(id => plants.find(p => p.id === id)).filter(Boolean);
+      showPickerConfirmOverlay(container, selectedPlants, title, () => {
+        onConfirm(selectedIds);
+      }, () => {
+        // On "Go Back" — deselect the last picked plant and re-render
+        selectedIds.pop();
+        updateBanner();
+        renderPickerGrid();
+      });
+    }
+  }
+
+  function renderPickerGrid() {
+    stopAllAnimators();
+    grid.innerHTML = '';
+
+    for (const plant of plants) {
+      const isEligible = eligible ? eligible(plant) : true;
+      const isSelected = selectedIds.includes(plant.id);
+
+      const card = document.createElement('div');
+      card.className = 'garden-card';
+      card.dataset.plantId = plant.id;
+      if (isSelected) card.classList.add('picker-card-selected');
+      if (!isEligible) card.classList.add('picker-card-disabled');
+
+      const canvasWrap = document.createElement('div');
+      canvasWrap.className = 'garden-canvas-wrap';
+      const animator = new PlantAnimator(canvasWrap, plant, 3, { mini: true });
+      animator.start();
+
+      if (plant.unique) {
+        card.classList.add('garden-card-unique');
+        card.style.borderColor = isSelected ? '#5a9a3a' : '#c0c8d4';
+      }
+
+      const info = document.createElement('div');
+      info.className = 'garden-card-info';
+      const displayRarity = plant.unique ? `Unique ${plant.uniqueBase || plant.rarity}` : plant.rarity;
+      const displayColor = plant.unique ? '#c0c8d4' : RARITY_COLORS[plant.rarity];
+      info.innerHTML = `
+        <span class="garden-card-name" style="color:${displayColor}">${plant.species}</span>
+        <span class="garden-card-rarity">${displayRarity}</span>
+        ${plant.unique ? '<span class="unique-badge">Unique</span>' : ''}
+        ${plant.upgradeMultiplier && plant.upgradeMultiplier > 1 ? '<span class="upgraded-badge">Upgraded</span>' : ''}
+      `;
+
+      card.appendChild(canvasWrap);
+      card.appendChild(info);
+
+      if (isEligible) {
+        card.addEventListener('click', () => {
+          if (isSelected) {
+            selectedIds = selectedIds.filter(id => id !== plant.id);
+          } else if (selectedIds.length < maxSelections) {
+            selectedIds.push(plant.id);
+          }
+          updateBanner();
+          renderPickerGrid();
+          checkSelectionComplete();
+        });
+      }
+
+      grid.appendChild(card);
+    }
+  }
+
+  updateBanner();
+  renderPickerGrid();
+}
+
+function showPickerConfirmOverlay(container, selectedPlants, actionTitle, onConfirm, onGoBack) {
+  const overlay = document.createElement('div');
+  overlay.className = 'detail-overlay';
+
+  const card = document.createElement('div');
+  card.className = 'detail-card picker-confirm-card';
+
+  // Title
+  const heading = document.createElement('h3');
+  heading.className = 'picker-confirm-title';
+  heading.textContent = `Confirm: ${actionTitle}`;
+  card.appendChild(heading);
+
+  // Plant previews
+  const previewRow = document.createElement('div');
+  previewRow.className = 'picker-confirm-plants';
+
+  const animators = [];
+  for (const plant of selectedPlants) {
+    const plantEl = document.createElement('div');
+    plantEl.className = 'picker-confirm-plant';
+
+    const canvasWrap = document.createElement('div');
+    canvasWrap.className = 'picker-confirm-canvas';
+    const animator = new PlantAnimator(canvasWrap, plant, 4, { mini: false });
+    animators.push(animator);
+
+    const displayRarity = plant.unique ? `Unique ${plant.uniqueBase || plant.rarity}` : plant.rarity;
+    const displayColor = plant.unique ? '#c0c8d4' : RARITY_COLORS[plant.rarity];
+
+    const info = document.createElement('div');
+    info.className = 'picker-confirm-plant-info';
+    info.innerHTML = `
+      <span class="picker-confirm-plant-name" style="color:${displayColor}">${plant.species}</span>
+      <span class="picker-confirm-plant-rarity">${displayRarity}</span>
+    `;
+
+    plantEl.appendChild(canvasWrap);
+    plantEl.appendChild(info);
+    previewRow.appendChild(plantEl);
+  }
+
+  card.appendChild(previewRow);
+
+  // Warning for combine (2 plants)
+  if (selectedPlants.length === 2) {
+    const warn = document.createElement('p');
+    warn.className = 'picker-confirm-warning';
+    warn.textContent = 'Both source plants will be removed.';
+    card.appendChild(warn);
+  }
+
+  // Buttons
+  const actions = document.createElement('div');
+  actions.className = 'picker-confirm-actions';
+  actions.innerHTML = `
+    <button class="btn btn-water" id="pickerConfirmYes">Confirm</button>
+    <button class="btn" id="pickerConfirmNo">Go Back</button>
+  `;
+  card.appendChild(actions);
+
+  overlay.appendChild(card);
+  container.appendChild(overlay);
+
+  // Start animators after DOM insertion
+  for (const a of animators) a.start();
+
+  const close = () => {
+    for (const a of animators) a.stop();
+    overlay.remove();
+  };
+
+  actions.querySelector('#pickerConfirmYes').addEventListener('click', () => {
+    close();
+    onConfirm();
+  });
+  const goBack = () => {
+    close();
+    if (onGoBack) onGoBack();
+  };
+  actions.querySelector('#pickerConfirmNo').addEventListener('click', goBack);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) goBack();
+  });
 }
 
 function showPlantDetail(container, plant) {

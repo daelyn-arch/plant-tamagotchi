@@ -556,45 +556,474 @@ function drawMoonLilyPetals(ctx, points, palette, rng, growthStage, size) {
 
 // ── Crystal Tree special ───────────────────────────────────────────
 
-function drawCrystalShards(ctx, points, palette, rng, growthStage, size) {
-  const crystalHue = rng.pick([180, 200, 260, 290, 330]);
-  const crystalColors = [
-    hsl(crystalHue, 50, 40),
-    hsl(crystalHue, 60, 55),
-    hsl(crystalHue, 65, 70),
-    hsl(crystalHue, 40, 85),
+function drawCrystalTrunk(ctx, cx, soilY, height, rng, size) {
+  const trunkHue = rng.pick([180, 200, 220, 260]);
+  const trunkColors = [
+    hsl(trunkHue, 25, 25),  // dark edge
+    hsl(trunkHue, 30, 40),  // mid
+    hsl(trunkHue, 20, 55),  // inner
+    hsl(trunkHue, 15, 72),  // highlight streak
   ];
 
-  const topPoints = [...points].sort((a, b) => a.y - b.y).slice(0, 10);
-  const numCrystals = Math.min(8, Math.floor(growthStage * 10));
+  const stemTop = soilY - height;
+  const points = [];
+  let drift = 0;
+  const driftDir = rng.chance(0.5) ? 1 : -1;
 
-  for (let i = 0; i < numCrystals; i++) {
+  // Crystal trunk is slightly thicker, faceted
+  const baseThick = 3;
+
+  for (let y = soilY - 1; y >= stemTop; y--) {
+    drift += (rng.random() - 0.5 + driftDir * 0.04);
+    if (Math.abs(drift) > size * 0.08) drift *= 0.7;
+    const px = Math.round(cx + drift);
+    const progress = (soilY - y) / height;
+    const thick = Math.max(2, Math.round(baseThick * (1 - progress * 0.4)));
+    const half = Math.floor(thick / 2);
+
+    for (let t = -half; t <= half; t++) {
+      // Faceted shading — left dark, center bright, right mid
+      let shade;
+      if (t === -half) shade = 0;
+      else if (t === half) shade = 1;
+      else shade = 2;
+      // Internal light streak every few pixels
+      if (t === 0 && y % 3 === 0 && progress > 0.1 && progress < 0.85) shade = 3;
+      setPixel(ctx, px + t, y, trunkColors[shade]);
+    }
+
+    points.push({ x: px, y });
+  }
+
+  return { points, trunkHue };
+}
+
+function drawCrystalBranches(ctx, stemPoints, rng, size, trunkHue) {
+  const branchColors = [
+    hsl(trunkHue, 25, 30),
+    hsl(trunkHue, 30, 45),
+    hsl(trunkHue, 20, 60),
+  ];
+  const branchPoints = [];
+  const numBranches = rng.int(3, 6);
+
+  for (let i = 0; i < numBranches; i++) {
+    const idx = rng.int(
+      Math.floor(stemPoints.length * 0.2),
+      Math.floor(stemPoints.length * 0.85)
+    );
+    const start = stemPoints[idx];
+    if (!start) continue;
+
+    const dir = rng.chance(0.5) ? -1 : 1;
+    const branchLen = rng.int(3, Math.max(5, Math.floor(size * 0.2)));
+    let bx = start.x;
+    let by = start.y;
+
+    for (let j = 0; j < branchLen; j++) {
+      bx += dir;
+      if (rng.chance(0.55)) by -= 1;
+      const shade = j < 2 ? 0 : j > branchLen - 2 ? 2 : 1;
+      setPixel(ctx, bx, by, branchColors[shade]);
+      if (j < branchLen * 0.4) {
+        setPixel(ctx, bx, by + 1, branchColors[0]);
+      }
+      branchPoints.push({ x: bx, y: by });
+    }
+  }
+
+  return branchPoints;
+}
+
+function drawCrystalFormation(ctx, x, y, height, width, angle, colors, accentColors, rng) {
+  // Draw a single crystal prism at an angle
+  const sin = Math.sin(angle);
+  const cos = Math.cos(angle);
+
+  for (let row = 0; row < height; row++) {
+    const t = row / height;
+    // Hexagonal taper — widens slightly in middle, narrows at tip
+    const widthMul = t < 0.3 ? (0.7 + t) : (1.0 - (t - 0.3) * 1.1);
+    const w = Math.max(1, Math.round(width * Math.max(0.3, widthMul)));
+    const half = Math.floor(w / 2);
+
+    for (let col = -half; col <= half; col++) {
+      const px = Math.round(x + cos * row * 0.15 + col);
+      const py = Math.round(y - row + sin * col * 0.1);
+
+      // Faceted shading with refraction
+      let shade;
+      const fromEdge = Math.min(col - (-half), half - col);
+      if (fromEdge === 0) shade = 0;                        // dark edge
+      else if (col < 0 && fromEdge === 1) shade = 1;        // left face
+      else if (col > 0 && fromEdge === 1) shade = 2;        // right face (lighter)
+      else shade = 3;                                        // bright interior
+
+      // Internal refraction lines
+      if (col === 0 && row % 2 === 0 && t > 0.15 && t < 0.8) shade = 4;
+      // Prismatic glint near top
+      if (t > 0.75 && fromEdge > 0 && rng.chance(0.4)) shade = 5;
+
+      const c = shade >= colors.length ? colors[colors.length - 1] : colors[shade];
+      setPixel(ctx, px, py, c);
+    }
+  }
+
+  // Sharp tip highlight
+  setPixel(ctx, Math.round(x + cos * height * 0.15), y - height, colors[colors.length - 1]);
+  // Prismatic sparkle at tip
+  if (rng.chance(0.6)) {
+    const tipX = Math.round(x + cos * height * 0.15);
+    const tipY = y - height;
+    const sparkColor = rng.pick(accentColors);
+    setPixel(ctx, tipX - 1, tipY, sparkColor);
+    setPixel(ctx, tipX + 1, tipY, sparkColor);
+    setPixel(ctx, tipX, tipY - 1, sparkColor);
+  }
+}
+
+function drawCrystalShards(ctx, points, palette, rng, growthStage, size) {
+  // Primary crystal hue
+  const crystalHue = rng.pick([180, 200, 260, 290, 330]);
+  // Secondary accent hue for prismatic refraction
+  const accentHue = (crystalHue + rng.pick([40, 60, 120, 180])) % 360;
+
+  const crystalColors = [
+    hsl(crystalHue, 45, 28),   // dark edge
+    hsl(crystalHue, 55, 42),   // left face
+    hsl(crystalHue, 60, 58),   // right face
+    hsl(crystalHue, 50, 72),   // bright interior
+    hsl(accentHue, 70, 78),    // refraction line
+    '#ffffff',                  // tip sparkle
+  ];
+
+  const accentColors = [
+    hsl(accentHue, 70, 70),
+    hsl((crystalHue + 30) % 360, 60, 80),
+    hsl((crystalHue - 30 + 360) % 360, 60, 75),
+    '#ffe8ff',
+    '#e8ffff',
+  ];
+
+  // Sort points for placement — top and branch ends
+  const sorted = [...points].sort((a, b) => a.y - b.y);
+  const topPoints = sorted.slice(0, Math.max(12, Math.floor(sorted.length * 0.5)));
+
+  // Large prominent crystals at the crown
+  const numLarge = Math.min(5, Math.max(1, Math.floor(growthStage * 5)));
+  const placed = [];
+
+  for (let i = 0; i < numLarge; i++) {
     const pt = rng.pick(topPoints);
-    const crystalH = rng.int(3, Math.max(4, Math.floor(size * 0.12)));
-    const crystalW = rng.int(2, Math.max(3, Math.floor(crystalH * 0.6)));
+    const tooClose = placed.some(p => Math.abs(p.x - pt.x) + Math.abs(p.y - pt.y) < 4);
+    if (tooClose && i > 0) continue;
+    placed.push(pt);
 
-    // Draw a faceted crystal shape pointing up
-    for (let row = 0; row < crystalH; row++) {
-      const t = row / crystalH;
-      const w = Math.max(1, Math.round(crystalW * (1 - t * 0.7)));
-      const left = pt.x - Math.floor(w / 2);
-      for (let x = left; x < left + w; x++) {
-        const fromLeft = x - left;
-        let shade;
-        if (fromLeft === 0) shade = 0;
-        else if (fromLeft === w - 1) shade = 1;
-        else shade = t < 0.3 ? 2 : 3;
-        setPixel(ctx, x, pt.y - row, crystalColors[shade]);
+    const h = rng.int(5, Math.max(7, Math.floor(size * 0.18)));
+    const w = rng.int(2, Math.max(3, Math.floor(h * 0.5)));
+    const angle = rng.float(-0.5, 0.5);
+    drawCrystalFormation(ctx, pt.x, pt.y, h, w, angle, crystalColors, accentColors, rng);
+  }
+
+  // Medium crystals scattered around
+  const numMedium = Math.min(8, Math.floor(growthStage * 8));
+  for (let i = 0; i < numMedium; i++) {
+    const pt = rng.pick(topPoints);
+    const h = rng.int(3, Math.max(4, Math.floor(size * 0.1)));
+    const w = rng.int(1, Math.max(2, Math.floor(h * 0.5)));
+    const angle = rng.float(-0.8, 0.8);
+    drawCrystalFormation(ctx, pt.x, pt.y, h, w, angle, crystalColors, accentColors, rng);
+  }
+
+  // Small crystal clusters at branch junctions
+  if (growthStage > 0.5) {
+    const midPoints = sorted.slice(
+      Math.floor(sorted.length * 0.3),
+      Math.floor(sorted.length * 0.7)
+    );
+    const numSmall = Math.min(6, Math.floor(growthStage * 6));
+    for (let i = 0; i < numSmall; i++) {
+      const pt = rng.pick(midPoints.length > 0 ? midPoints : topPoints);
+      // Tiny 2-3 pixel crystal nub
+      const h = rng.int(2, 3);
+      for (let row = 0; row < h; row++) {
+        setPixel(ctx, pt.x, pt.y - row, crystalColors[row === 0 ? 1 : 3]);
+        if (row === 0) {
+          setPixel(ctx, pt.x - 1, pt.y, crystalColors[0]);
+          setPixel(ctx, pt.x + 1, pt.y, crystalColors[2]);
+        }
       }
     }
-    // Tip highlight
-    setPixel(ctx, pt.x, pt.y - crystalH, crystalColors[3]);
   }
+
+  // Prismatic light scattering — rainbow glints across the tree
+  if (growthStage > 0.6) {
+    const numGlints = Math.floor(growthStage * 8);
+    for (let i = 0; i < numGlints; i++) {
+      const pt = rng.pick(sorted.slice(0, Math.floor(sorted.length * 0.6)));
+      const glintColor = rng.pick(accentColors);
+      setPixel(ctx, pt.x + rng.int(-2, 2), pt.y + rng.int(-1, 1), glintColor);
+    }
+  }
+
+  // Base crystal cluster around soil line
+  if (growthStage > 0.3) {
+    const basePoints = sorted.filter(p => p.y > sorted[sorted.length - 1].y - 5);
+    const numBase = Math.min(4, Math.floor(growthStage * 3));
+    for (let i = 0; i < numBase; i++) {
+      const pt = basePoints.length > 0 ? rng.pick(basePoints) : sorted[sorted.length - 1];
+      const dir = rng.chance(0.5) ? -1 : 1;
+      const bx = pt.x + dir * rng.int(1, 3);
+      const h = rng.int(2, 4);
+      for (let row = 0; row < h; row++) {
+        setPixel(ctx, bx, pt.y - row, crystalColors[row === h - 1 ? 3 : 1]);
+        if (row < h - 1) setPixel(ctx, bx + dir, pt.y - row, crystalColors[0]);
+      }
+    }
+  }
+}
+
+// ── Face (animated plants) ────────────────────────────────────────
+
+function findFacePosition(ctx, size) {
+  // Scan the plant area (above pot) to find center of mass of plant pixels
+  const potHeight = Math.max(5, Math.floor(size * 0.24));
+  const plantTop = Math.floor(size * 0.05);
+  const plantBottom = size - potHeight - 2;
+  const h = plantBottom - plantTop;
+  if (h <= 0) return { x: Math.floor(size / 2), y: Math.floor(size * 0.45) };
+
+  const data = ctx.getImageData(0, plantTop, size, h);
+
+  let totalX = 0, totalY = 0, count = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < size; x++) {
+      if (data.data[(y * size + x) * 4 + 3] > 128) {
+        totalX += x;
+        totalY += y;
+        count++;
+      }
+    }
+  }
+
+  if (count === 0) {
+    return { x: Math.floor(size / 2), y: Math.floor(size * 0.45) };
+  }
+
+  return {
+    x: Math.floor(totalX / count),
+    y: plantTop + Math.floor(totalY / count),
+  };
+}
+
+function drawFace(ctx, size, rng) {
+  const pos = findFacePosition(ctx, size);
+  const cx = pos.x;
+  const cy = pos.y;
+
+  // Scale: eye radius grows with canvas size
+  const ratio = size / 32;
+  const eyeR = Math.max(2, Math.round(ratio * 2));       // eye radius
+  const eyeGap = Math.max(3, Math.round(ratio * 2.5));   // center-to-center half-distance
+  const lx = cx - eyeGap;
+  const rx = cx + eyeGap;
+
+  // Seed-based color for iris
+  const irisHue = rng.int(0, 359);
+  const irisMid = hsl(irisHue, 60, 40);
+  const irisDark = hsl(irisHue, 65, 25);
+
+  // Draw one anime eye: white sclera circle, colored iris, dark pupil, big highlight
+  function drawEye(ex, ey) {
+    // White sclera — filled circle
+    for (let dy = -eyeR; dy <= eyeR; dy++) {
+      for (let dx = -eyeR; dx <= eyeR; dx++) {
+        if (dx * dx + dy * dy <= eyeR * eyeR) {
+          setPixel(ctx, ex + dx, ey + dy, '#ffffff');
+        }
+      }
+    }
+    // Dark outline
+    for (let dy = -eyeR; dy <= eyeR; dy++) {
+      for (let dx = -eyeR; dx <= eyeR; dx++) {
+        const d2 = dx * dx + dy * dy;
+        if (d2 <= eyeR * eyeR && d2 > (eyeR - 1) * (eyeR - 1)) {
+          setPixel(ctx, ex + dx, ey + dy, '#1a1a2a');
+        }
+      }
+    }
+    // Iris — slightly smaller, sits in lower half of eye
+    const irisR = Math.max(1, eyeR - 1);
+    const irisY = ey + Math.max(0, Math.floor(eyeR * 0.2));
+    for (let dy = -irisR; dy <= irisR; dy++) {
+      for (let dx = -irisR; dx <= irisR; dx++) {
+        if (dx * dx + dy * dy <= irisR * irisR) {
+          setPixel(ctx, ex + dx, irisY + dy, irisMid);
+        }
+      }
+    }
+    // Pupil — dark center
+    const pupilR = Math.max(1, Math.floor(irisR * 0.5));
+    for (let dy = -pupilR; dy <= pupilR; dy++) {
+      for (let dx = -pupilR; dx <= pupilR; dx++) {
+        if (dx * dx + dy * dy <= pupilR * pupilR) {
+          setPixel(ctx, ex + dx, irisY + dy, irisDark);
+        }
+      }
+    }
+    // Big anime highlight — upper-right
+    const hiR = Math.max(1, Math.floor(eyeR * 0.4));
+    const hiX = ex + Math.max(1, Math.floor(eyeR * 0.3));
+    const hiY = ey - Math.max(1, Math.floor(eyeR * 0.3));
+    for (let dy = -hiR; dy <= hiR; dy++) {
+      for (let dx = -hiR; dx <= hiR; dx++) {
+        if (dx * dx + dy * dy <= hiR * hiR) {
+          setPixel(ctx, hiX + dx, hiY + dy, '#ffffff');
+        }
+      }
+    }
+    // Small secondary highlight — lower-left
+    if (eyeR >= 2) {
+      setPixel(ctx, ex - 1, irisY + Math.max(1, Math.floor(irisR * 0.4)), '#ffffff');
+    }
+  }
+
+  drawEye(lx, cy);
+  drawEye(rx, cy);
+}
+
+// ── Fusion shimmer ────────────────────────────────────────────────
+
+function drawFusionShimmer(ctx, size, rng, frameOffset) {
+  const colors = ['#c0c8d4', '#d4dce8', '#e8e0f0', '#dce8d4'];
+  const numShimmer = rng.int(4, 8);
+  for (let i = 0; i < numShimmer; i++) {
+    const sx = rng.int(4, size - 5);
+    const sy = rng.int(4, size - 10);
+    if ((i + (frameOffset || 0)) % 4 === 0) {
+      const c = rng.pick(colors);
+      setPixel(ctx, sx, sy, c);
+      if (rng.chance(0.5)) setPixel(ctx, sx + 1, sy, c);
+      if (rng.chance(0.5)) setPixel(ctx, sx, sy + 1, c);
+    }
+  }
+}
+
+// Render a fusion hybrid plant by layering two full parent renders.
+// The higher-rarity parent renders first as the base (with its original seed),
+// then the lower/equal-rarity parent renders on top (with its original seed).
+// This creates a genuine "two plants merged" effect where both are visible.
+function renderHybridPlant(plant, growthStage, frameOffset) {
+  const baseSize = getCanvasSize(plant.rarity);
+  const parents = plant.fusionParents;
+  // Fusion of two non-unique plants grows 25% bigger; fusions involving uniques stay normal
+  const hasUniqueParent = parents.some(p => p.wasUnique);
+  const size = hasUniqueParent ? baseSize : Math.ceil(baseSize * 1.25);
+
+  // Determine base (higher-rarity) vs overlay (lower-rarity) parent.
+  // plant.species was inherited from the higher-rarity parent during combine.
+  let baseParent = parents[0];
+  let overlayParent = parents[1];
+  if (parents[1].species === plant.species && parents[0].species !== plant.species) {
+    baseParent = parents[1];
+    overlayParent = parents[0];
+  }
+
+  // Construct plant-like objects — no unique/fusionParents to avoid recursion
+  const basePlant = {
+    seed: baseParent.seed,
+    species: baseParent.species,
+    leafType: baseParent.leafType,
+    hasFlowers: baseParent.hasFlowers,
+    complexity: baseParent.complexity || 2,
+    rarity: plant.rarity,
+  };
+
+  const overlayPlant = {
+    seed: overlayParent.seed,
+    species: overlayParent.species,
+    leafType: overlayParent.leafType,
+    hasFlowers: overlayParent.hasFlowers,
+    complexity: overlayParent.complexity || 2,
+    rarity: plant.rarity,
+  };
+
+  // Render both parents at normal size through the body pipeline (no face overlay)
+  const baseCanvas = renderPlantBody(basePlant, growthStage, frameOffset);
+  const overlayCanvas = renderPlantBody(overlayPlant, growthStage, frameOffset);
+
+  // Calculate soil line at original size — exclude pot/soil from the overlay
+  const potHeight = Math.max(5, Math.floor(baseSize * 0.24));
+  const rimHeight = Math.max(2, Math.floor(potHeight * 0.28));
+  const soilY = (baseSize - 1 - potHeight) + rimHeight - 1;
+  const cropY = Math.max(0, soilY - 3); // a few pixels above soil to avoid pot bleed
+
+  // Composite — pot at 1:1, plant portions scaled up
+  const { canvas, ctx } = createCanvas(size, size);
+  ctx.imageSmoothingEnabled = false;
+
+  const potRegionHeight = baseSize - cropY;
+  const potDestY = size - potRegionHeight;          // pot sits at bottom of larger canvas
+  const potOffsetX = Math.floor((size - baseSize) / 2); // center pot horizontally
+
+  // Uniform scale for plant portion
+  const scaleFactor = size / baseSize;
+  const scaledPlantH = Math.ceil(cropY * scaleFactor);
+  const plantDestY = potDestY - scaledPlantH;       // align plant bottom to pot top
+
+  // 1. Draw base pot at 1:1, centered at the bottom
+  ctx.drawImage(baseCanvas,
+    0, cropY, baseSize, potRegionHeight,
+    potOffsetX, potDestY, baseSize, potRegionHeight);
+
+  // 2. Draw base plant portion, uniformly scaled
+  ctx.drawImage(baseCanvas,
+    0, 0, baseSize, cropY,
+    0, plantDestY, size, scaledPlantH);
+
+  // 3. Draw overlay plant portion on top, same scale
+  ctx.drawImage(overlayCanvas,
+    0, 0, baseSize, cropY,
+    0, plantDestY, size, scaledPlantH);
+
+  // Fusion shimmer
+  if (growthStage >= 0.8) {
+    const shimmerRng = createRng(plant.seed + 777);
+    drawFusionShimmer(ctx, size, shimmerRng, frameOffset);
+  }
+
+  // Completion sparkles
+  if (growthStage >= 1.0) {
+    const sparkRng = createRng(plant.seed + 999);
+    drawSparkles(ctx, size, sparkRng, frameOffset);
+  }
+
+  return canvas;
 }
 
 // ── Main render ────────────────────────────────────────────────────
 
 export function renderPlant(plant, growthStage, frameOffset = 0) {
+  let canvas;
+
+  if (plant.unique && plant.fusionParents && plant.fusionParents.length === 2) {
+    canvas = renderHybridPlant(plant, growthStage, frameOffset);
+  } else {
+    canvas = renderPlantBody(plant, growthStage, frameOffset);
+  }
+
+  // Face overlay for animated plants
+  if (plant.animated && growthStage >= 0.2) {
+    const ctx = canvas.getContext('2d');
+    const faceRng = createRng(plant.seed + 555);
+    drawFace(ctx, canvas.width, faceRng);
+  }
+
+  return canvas;
+}
+
+// Internal: renders the plant without face overlay
+function renderPlantBody(plant, growthStage, frameOffset) {
   const size = getCanvasSize(plant.rarity);
   const { canvas, ctx } = createCanvas(size, size);
   const rng = createRng(plant.seed);
@@ -639,6 +1068,27 @@ export function renderPlant(plant, growthStage, frameOffset = 0) {
     return canvas;
   }
 
+  // ── Crystal Tree — fully custom rendering ──
+  if (species === 'Crystal Tree') {
+    const { points: crystalStemPts, trunkHue } = drawCrystalTrunk(ctx, cx, soilY, stemHeight, rng, size);
+    let crystalPts = [...crystalStemPts];
+
+    if (growthStage > 0.25) {
+      const branchPts = drawCrystalBranches(ctx, crystalStemPts, rng, size, trunkHue);
+      crystalPts = [...crystalPts, ...branchPts];
+    }
+
+    if (growthStage > 0.3) {
+      drawCrystalShards(ctx, crystalPts, palette, rng, growthStage, size);
+    }
+
+    if (growthStage >= 1.0) {
+      const sparkRng = createRng(plant.seed + 999);
+      drawSparkles(ctx, size, sparkRng, frameOffset);
+    }
+    return canvas;
+  }
+
   // ── Standard stem-based plants ──
   const stemPoints = drawStem(ctx, cx, soilY, stemHeight, palette, rng, complexity, size);
   let allPoints = [...stemPoints];
@@ -652,19 +1102,6 @@ export function renderPlant(plant, growthStage, frameOffset = 0) {
   // Bonsai canopy
   if (species === 'Bonsai' && growthStage > 0.25) {
     drawBonsaiCanopy(ctx, allPoints, palette, rng, growthStage, size);
-  }
-
-  // Crystal Tree shards
-  if (species === 'Crystal Tree' && growthStage > 0.3) {
-    // Draw leaves first as background foliage
-    const leafGrowth = Math.min(1, (growthStage - 0.15) / 0.55);
-    drawLeaves(ctx, allPoints, palette, rng, plant.leafType || 'tiny', leafGrowth, complexity, size);
-    drawCrystalShards(ctx, allPoints, palette, rng, growthStage, size);
-    if (growthStage >= 1.0) {
-      const sparkRng = createRng(plant.seed + 999);
-      drawSparkles(ctx, size, sparkRng, frameOffset);
-    }
-    return canvas;
   }
 
   // Leaves at growth > 0.15

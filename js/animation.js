@@ -319,13 +319,13 @@ export class PlantAnimator {
     this.running = false;
     this.animFrameId = null;
 
-    const size = getCanvasSize(plant.rarity);
+    // Cache the base plant render — do this first so we know actual canvas size
+    // (fusion plants may be larger than getCanvasSize due to 1.25x scaling)
+    this.basePlant = renderPlant(plant, plant.growthStage);
+    const size = this.basePlant.width;
     this.pixelSize = size;
     this.displayW = size * scale;
     this.displayH = size * scale;
-
-    // Cache the base plant render
-    this.basePlant = renderPlant(plant, plant.growthStage);
 
     // Particle config — reduce for mini mode
     const base = PARTICLE_CONFIGS[plant.rarity] || PARTICLE_CONFIGS[RARITY.COMMON];
