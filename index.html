@@ -42,6 +42,7 @@
         <button class="btn" id="inventoryBtn">Inventory</button>
         <button class="btn" id="galleryBtn">Species Gallery</button>
         <button class="btn" id="itemGalleryBtn">Item Gallery</button>
+        <button class="btn" id="minigameBtn" style="display:none">Play</button>
         <button class="btn" id="infoBtn">Info</button>
       </div>
     </div>
@@ -72,6 +73,19 @@
     <div id="galleryContainer"></div>
   </div>
 
+  <!-- Minigame Screen -->
+  <div id="minigameScreen" class="screen minigame-screen">
+    <div id="minigameContainer" class="minigame-container">
+      <canvas id="minigameCanvas" width="320" height="160"></canvas>
+      <div class="minigame-hud" id="minigameHud">
+        <span id="minigameScore">0</span>
+      </div>
+      <div class="minigame-start-overlay" id="minigameOverlay">
+        <div id="minigameOverlayContent"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Completion Overlay -->
   <div id="completionOverlay" class="completion-overlay">
     <div class="completion-card">
@@ -94,6 +108,7 @@
       <button class="dev-btn" id="devAllItems">+All Items</button>
       <button class="dev-btn" id="devAllPlants">+All Plants</button>
       <button class="dev-btn" id="devReset">Reset All</button>
+      <button class="dev-btn" id="devUnlimitedWater">∞ Water</button>
     </div>
     <button class="dev-toggle" id="devToggle">DEV</button>
   </div>

@@ -4,6 +4,7 @@ import { loadState, saveState, todayStr } from './state.js';
 import { ensurePlant, processVisit, completePlant, devAdvanceDays, applyPassiveGrowth } from './growth.js';
 import {
   updatePlantView,
+  animateGrowthTransition,
   showToast,
   playWaterAnimation,
   showScreen,
@@ -15,12 +16,14 @@ import { renderGardenView } from './garden.js';
 import { renderSpeciesGallery } from './species-gallery.js';
 import { renderInventoryView, setOnItemUsed, setOnInventoryBack } from './inventory-ui.js';
 import { stopAllAnimators } from './animation.js';
-import { ITEM_TYPES, createItem } from './items.js';
+import { ITEM_TYPES, createItem, SEED_TIER_MAP } from './items.js';
 import { renderItemGallery, setOnItemGalleryBack } from './item-gallery.js';
 import { renderInfoPanel, setOnInfoBack } from './info-panel.js';
 import { SPECIES, RARITY } from './plant-data.js';
+import { startMinigame, stopMinigame } from './minigame.js';
 
 let currentScreen = 'plant';
+let devUnlimitedWater = false;
 
 function init() {
   // Ensure we have a plant
@@ -65,6 +68,11 @@ function init() {
     switchToInfo();
   });
 
+  // Minigame button
+  document.getElementById('minigameBtn').addEventListener('click', () => {
+    switchToMinigame();
+  });
+
   // Completion overlay "Move to Garden" button
   document.getElementById('moveToGardenBtn').addEventListener('click', handleMoveToGarden);
 
@@ -106,30 +114,37 @@ function handleWater() {
     return;
   }
 
+  // If unlimited water is on, clear today's visit so processVisit allows re-watering
+  if (devUnlimitedWater) {
+    state.stats.lastVisitDate = null;
+    saveState(state);
+  }
+
+  // Capture old growth stage before processing
+  const oldGrowthStage = state.currentPlant ? state.currentPlant.growthStage : 0;
+
   const { state: newState, result } = processVisit();
 
   switch (result.type) {
     case 'already_visited':
       showToast(result.message, 'info');
+      updatePlantView(newState);
       break;
     case 'new_plant':
       showToast(result.message, 'success');
+      updatePlantView(newState);
       break;
     case 'watered':
       playWaterAnimation(document.getElementById('plantCanvasWrap'));
       showToast(result.message, 'success');
+      animateGrowthTransition(oldGrowthStage, newState, 3000);
       break;
     case 'completed':
       playWaterAnimation(document.getElementById('plantCanvasWrap'));
-      showToast('Your plant is fully grown!', 'success');
-      // Short delay then show completion
-      setTimeout(() => {
-        showCompletionOverlay(newState.currentPlant, newState.stats, null);
-      }, 800);
+      showToast('Your plant is fully grown! Tap water again to collect.', 'success');
+      animateGrowthTransition(oldGrowthStage, newState, 3000);
       break;
   }
-
-  updatePlantView(newState);
 }
 
 function handleMoveToGarden() {
@@ -200,6 +215,25 @@ function switchToInfo() {
   renderInfoPanel(container);
 }
 
+function switchToMinigame() {
+  const state = loadState();
+
+  // Only animated (Life Spark) garden plants are eligible — not the currently growing plant
+  const eligiblePlants = state.garden.filter(p => p.animated);
+
+  if (eligiblePlants.length === 0) return;
+
+  stopAllAnimators();
+  currentScreen = 'minigame';
+  showScreen('minigameScreen');
+  startMinigame(eligiblePlants, () => {
+    stopMinigame();
+    currentScreen = 'plant';
+    showScreen('plantScreen');
+    updatePlantView(loadState());
+  });
+}
+
 function switchToGallery() {
   currentScreen = 'gallery';
   showScreen('galleryScreen');
@@ -259,11 +293,16 @@ function setupDevControls() {
     const state = loadState();
     if (!state.items) state.items = [];
     const types = Object.keys(ITEM_TYPES);
+    const rarities = [RARITY.COMMON, RARITY.UNCOMMON, RARITY.RARE, RARITY.EPIC, RARITY.LEGENDARY];
+    let count = 0;
     for (const type of types) {
-      state.items.push(createItem(type, RARITY.LEGENDARY));
+      for (const rarity of rarities) {
+        state.items.push(createItem(type, rarity));
+        count++;
+      }
     }
     saveState(state);
-    showToast(`DEV: Added ${types.length} items (1 of each type)`, 'info');
+    showToast(`DEV: Added ${count} items (1 of each rarity per type)`, 'info');
   });
 
   document.getElementById('devAllPlants')?.addEventListener('click', () => {
@@ -303,6 +342,23 @@ function setupDevControls() {
       showToast('DEV: State reset', 'info');
     }
   });
+
+  const unlimitedBtn = document.getElementById('devUnlimitedWater');
+  if (unlimitedBtn) {
+    unlimitedBtn.addEventListener('click', () => {
+      devUnlimitedWater = !devUnlimitedWater;
+      unlimitedBtn.style.background = devUnlimitedWater ? '#4a8a2a' : '';
+      unlimitedBtn.style.color = devUnlimitedWater ? '#fff' : '';
+      showToast(`DEV: Unlimited water ${devUnlimitedWater ? 'ON' : 'OFF'}`, 'info');
+      if (devUnlimitedWater) {
+        // Re-enable the water button immediately
+        const state = loadState();
+        state.stats.lastVisitDate = null;
+        saveState(state);
+        updatePlantView(loadState());
+      }
+    });
+  }
 }
 
 // Boot

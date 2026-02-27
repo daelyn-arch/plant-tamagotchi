@@ -14,6 +14,7 @@ function defaultState() {
       longestStreak: 0,
       lastVisitDate: null,
       totalVisits: 0,
+      minigameHighScore: 0,
     },
   };
 }

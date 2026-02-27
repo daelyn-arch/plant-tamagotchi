@@ -1,7 +1,7 @@
 // Daily visit processing, streak logic, plant completion
 
 import { loadState, saveState, todayStr, isYesterday, daysBetween } from './state.js';
-import { pickSpecies, RARITY } from './plant-data.js';
+import { pickSpecies, pickSpeciesByRarity, RARITY } from './plant-data.js';
 import { createRng } from './rng.js';
 
 // Watering bonus values — applied when user waters, driven by streak
@@ -22,9 +22,9 @@ export const DAY_BONUS_VALUES = {
   [RARITY.LEGENDARY]: 4,
 };
 
-// Watering bonus cap (floored) — sum of WATERING_BONUS_VALUES for all garden plants
+// Watering bonus cap — sum of WATERING_BONUS_VALUES for all garden plants
 export function wateringBonusCap(garden) {
-  return Math.floor(wateringBonusCapRaw(garden));
+  return wateringBonusCapRaw(garden);
 }
 
 export function wateringBonusCapRaw(garden) {
@@ -37,9 +37,9 @@ export function wateringBonusCapRaw(garden) {
   return cap;
 }
 
-// Day bonus cap (floored) — sum of DAY_BONUS_VALUES for all garden plants
+// Day bonus cap — sum of DAY_BONUS_VALUES for all garden plants
 export function dayBonusCap(garden) {
-  return Math.floor(dayBonusCapRaw(garden));
+  return dayBonusCapRaw(garden);
 }
 
 export function dayBonusCapRaw(garden) {
@@ -63,7 +63,7 @@ export function legendaryPassiveCap(garden) {
       cap += base * mult;
     }
   }
-  return Math.floor(cap);
+  return cap;
 }
 
 // Backward compat aliases
@@ -71,17 +71,17 @@ export const RARITY_CAP_VALUES = WATERING_BONUS_VALUES;
 export function gardenBonusCap(garden) { return wateringBonusCap(garden); }
 export function gardenBonusCapRaw(garden) { return wateringBonusCapRaw(garden); }
 
-// Calculate watering bonus: equals streak count, capped by watering bonus cap
+// Calculate watering bonus: flat permanent buff from garden plants
 export function streakBonus(streak, garden) {
   if (!garden || garden.length === 0) return 0;
-  const cap = wateringBonusCap(garden);
-  if (cap <= 0) return 0;
-  return Math.min(streak, cap);
+  return wateringBonusCap(garden);
 }
 
-// Calculate day bonus for the current garden (floored, for watering days)
-export function currentDayBonus(garden) {
-  return dayBonusCap(garden);
+// Calculate consecutive watering bonus — scales with streak
+// Streak 1 (first day back) = 0, streak 2 = 1×cap, streak 3 = 2×cap, etc.
+export function currentDayBonus(garden, streak) {
+  const consecutiveDays = Math.max(0, (streak || 0) - 1);
+  return dayBonusCap(garden) * consecutiveDays;
 }
 
 // Generate a new plant
@@ -105,6 +105,32 @@ export function generateNewPlant(rng) {
     daysVisited: [],
     dateReceived: todayStr(),
     autoWater: false,
+  };
+}
+
+// Generate a plant from a seed item
+export function generatePlantFromSeed(seedItem, rng) {
+  const species = pickSpeciesByRarity(rng, seedItem.seedTier);
+  if (!species) return null;
+  const seed = rng.int(1, 2147483647);
+  const totalDays = rng.int(species.minDays, species.maxDays);
+
+  return {
+    id: Date.now().toString(36) + seed.toString(36),
+    seed,
+    species: species.name,
+    rarity: species.rarity,
+    complexity: species.complexity,
+    hasFlowers: species.hasFlowers,
+    leafType: species.leafType,
+    name: species.name,
+    totalDaysRequired: totalDays,
+    daysGrown: 0,
+    growthStage: 0,
+    daysVisited: [],
+    dateReceived: todayStr(),
+    autoWater: false,
+    grownFromSeed: true,
   };
 }
 
@@ -223,7 +249,7 @@ export function processVisit() {
 
   // Apply growth — dual bonus system
   const wBonus = streakBonus(state.stats.currentStreak, state.garden);
-  const dBonus = currentDayBonus(state.garden);
+  const dBonus = currentDayBonus(state.garden, state.stats.currentStreak);
 
   // Calculate active boost contributions
   let boostWatering = 0;
@@ -277,7 +303,7 @@ export function processVisit() {
     result: {
       type: 'watered',
       message: totalBonus > 0
-        ? `Watered! +${growthDays} growth days (watering: +${totalWatering}, day: +${totalDay})`
+        ? `Watered! +${+growthDays.toFixed(2)} growth days (watering: +${+totalWatering.toFixed(2)}, consecutive: +${+totalDay.toFixed(2)})`
         : wCap === 0
           ? 'Watered! +1 growth day (grow plants to unlock bonuses!)'
           : 'Watered! +1 growth day',
@@ -319,6 +345,16 @@ export function completePlant() {
     for (const item of droppedItems) {
       state.items.push(item);
     }
+  }
+
+  // Common/Uncommon plants always drop a seed
+  const rollSeedDrop = window.__rollSeedDrop;
+  if (rollSeedDrop && (completedPlant.rarity === RARITY.COMMON || completedPlant.rarity === RARITY.UNCOMMON)) {
+    const seedRng = createRng(Date.now() + state.stats.totalPlantsGrown + 99);
+    const seedItem = rollSeedDrop(seedRng);
+    if (!state.items) state.items = [];
+    state.items.push(seedItem);
+    droppedItems.push(seedItem);
   }
 
   // Consume active boosts — decrement remaining uses
@@ -366,25 +402,8 @@ export function devAdvanceDays(numDays) {
   if (!state.currentPlant) return state;
 
   for (let i = 0; i < numDays; i++) {
-    state.stats.currentStreak++;
-    if (state.stats.currentStreak > state.stats.longestStreak) {
-      state.stats.longestStreak = state.stats.currentStreak;
-    }
-    state.stats.totalVisits++;
-
-    const wBonus = streakBonus(state.stats.currentStreak, state.garden);
-    const dBonus = currentDayBonus(state.garden);
-
-    // Include active boosts
-    let boostW = 0, boostD = 0;
-    if (state.activeBoosts) {
-      for (const b of state.activeBoosts) {
-        if (b.type === 'watering_boost') boostW += b.value;
-        if (b.type === 'day_boost') boostD += b.value;
-      }
-    }
-
-    state.currentPlant.daysGrown += 1 + wBonus + boostW + dBonus + boostD;
+    // Dev advance only adds base growth (+1 per day), no watering bonuses
+    state.currentPlant.daysGrown += 1;
     if (state.currentPlant.daysGrown >= state.currentPlant.totalDaysRequired) {
       state.currentPlant.daysGrown = state.currentPlant.totalDaysRequired;
       state.currentPlant.growthStage = 1.0;

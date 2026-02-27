@@ -96,6 +96,26 @@ export function generatePalette(rng) {
   return { greens, flowers, pot, soil, stem };
 }
 
+// Elemental pot color palettes
+export const ELEMENTAL_POT_PALETTES = {
+  fire: {
+    pot: ['#8b2500', '#c44000', '#e06030'],
+    soil: ['#3a1a0a', '#5a2a10'],
+  },
+  ice: {
+    pot: ['#1a5a7a', '#3a9ac0', '#80d0f0'],
+    soil: ['#1a3040', '#2a4a5a'],
+  },
+  earth: {
+    pot: ['#4a3a20', '#7a6040', '#a08860'],
+    soil: ['#2a1a08', '#4a3018'],
+  },
+  wind: {
+    pot: ['#1a5a4a', '#3a9a8a', '#70d0c0'],
+    soil: ['#1a3a2a', '#2a5a4a'],
+  },
+};
+
 // Clear canvas with transparent background
 export function clearCanvas(ctx, w, h) {
   ctx.clearRect(0, 0, w, h);

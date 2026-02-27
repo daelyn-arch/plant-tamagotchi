@@ -2,7 +2,7 @@
 
 import { SPECIES, RARITY } from './plant-data.js';
 import { WATERING_BONUS_VALUES, DAY_BONUS_VALUES } from './growth.js';
-import { ITEM_TYPES, RARITY_ORDER } from './items.js';
+import { ITEM_TYPES, RARITY_ORDER, SEED_TIER_MAP, SEED_DROP_WEIGHTS } from './items.js';
 
 const DROP_TABLES = {
   [RARITY.COMMON]:    { chance: '10%', second: '0%',  maxRarity: 'Common',    weights: { watering_boost: 30, day_boost: 10, art_reroll: 20, auto_water: 5, garden_upgrade: 3, plant_combine: 2, animate: 3 } },
@@ -57,6 +57,32 @@ function buildHTML() {
     </table>`
   );
 
+  // ─── Seed System ───
+  const seedTotalWeight = RARITY_ORDER.reduce((s, r) => s + (SEED_DROP_WEIGHTS[r] || 0), 0);
+  let seedDropRows = RARITY_ORDER.map(r => {
+    const w = SEED_DROP_WEIGHTS[r] || 0;
+    return `<tr>
+      <td class="rarity-${r.toLowerCase()}">${r}</td>
+      <td>${w}</td>
+      <td>${pct(w, seedTotalWeight)}</td>
+      <td class="rarity-${SEED_TIER_MAP[r].toLowerCase()}">${SEED_TIER_MAP[r]}</td>
+    </tr>`;
+  }).join('');
+
+  html += makeSection('Seed System',
+    `<p class="info-note">Wild plants are always <b>Common</b> or <b>Uncommon</b>. To grow Rare, Epic, or Legendary plants, you need seeds.</p>
+    <ul>
+      <li>Completing a Common or Uncommon plant <b>always drops a seed</b></li>
+      <li>The seed's rarity determines what tier of plant it grows</li>
+      <li>Use a seed from your inventory to replace your current plant</li>
+    </ul>
+    <p class="info-note"><b>Seed rarity → Plant tier:</b></p>
+    <table>
+      <tr><th>Seed Rarity</th><th>Weight</th><th>Drop %</th><th>Grows Plant Tier</th></tr>
+      ${seedDropRows}
+    </table>`
+  );
+
   // ─── Garden Bonus Values ───
   let bonusRows = RARITY_ORDER.map(r => `<tr>
     <td class="rarity-${r.toLowerCase()}">${r}</td>
@@ -67,21 +93,21 @@ function buildHTML() {
   html += makeSection('Garden Bonus Values (per plant)',
     `<p class="info-note">Each completed garden plant contributes to your bonus caps. <b>Watering Bonus</b> = min(streak, cap). <b>Day Bonus</b> = added on every water day. <b>Legendary Passive</b> = Day Bonus from Legendary plants applies every missed day too.</p>
     <table>
-      <tr><th>Plant Rarity</th><th>Watering Bonus</th><th>Day Bonus</th></tr>
+      <tr><th>Plant Rarity</th><th>Watering Bonus</th><th>Consecutive Bonus</th></tr>
       ${bonusRows}
     </table>
-    <p class="info-note">Fertile Soil upgrade multiplies a plant's contribution by 1.5x (stacks multiplicatively).</p>`
+    <p class="info-note">Fertile Soil upgrade multiplies a plant's contribution by rarity: Common +5%, Uncommon +10%, Rare +15%, Epic +25%, Legendary +50% (stacks multiplicatively).</p>`
   );
 
   // ─── Growth Formula ───
   html += makeSection('Growth Formula',
     `<p class="info-note">Each day you water:</p>
-    <div class="info-formula">growth = 1 + wateringBonus + dayBonus + boostWatering + boostDay</div>
+    <div class="info-formula">growth = 1 + wateringBonus + consecutiveBonus + boostWatering + boostDay</div>
     <ul>
-      <li><b>wateringBonus</b> = min(currentStreak, floor(sum of garden watering values))</li>
-      <li><b>dayBonus</b> = floor(sum of garden day values) — Rare+ plants contribute</li>
+      <li><b>wateringBonus</b> = sum of garden watering values (flat buff)</li>
+      <li><b>consecutiveBonus</b> = sum of garden consecutive values × (streak − 1) — 0 on first day, grows each consecutive day</li>
       <li><b>boostWatering / boostDay</b> = +2 each from active Growth Surge / Sun Stone items</li>
-      <li><b>Passive growth</b> (missed days): Legendary plants contribute their Day Bonus per missed day</li>
+      <li><b>Passive growth</b> (missed days): Legendary plants contribute their Consecutive Bonus per missed day</li>
       <li><b>Auto-water</b> (Rain Charm): missed days get full formula (1 + all bonuses)</li>
     </ul>
     <p class="info-note">Streak resets to 1 if you miss a day. Streak increments if you water on consecutive days.</p>`

@@ -1,11 +1,17 @@
 // Garden collection view
 
 import { loadState } from './state.js';
-import { RARITY, RARITY_COLORS } from './plant-data.js';
-import { PlantAnimator, stopAllAnimators } from './animation.js';
+import { RARITY, RARITY_COLORS, getCanvasSize } from './plant-data.js';
+import { PlantAnimator, GrowthReplayAnimator, stopAllAnimators } from './animation.js';
 import { WATERING_BONUS_VALUES, DAY_BONUS_VALUES, wateringBonusCapRaw, dayBonusCapRaw, legendaryPassiveCap } from './growth.js';
 
 const SORT_MODES = ['date', 'rarity', 'species'];
+
+function gardenMiniScale(plant) {
+  const cs = getCanvasSize(plant.rarity);
+  if (cs >= 96) return 2;
+  return 3;
+}
 const RARITY_ORDER = [RARITY.COMMON, RARITY.UNCOMMON, RARITY.RARE, RARITY.EPIC, RARITY.LEGENDARY];
 
 export function getGardenData() {
@@ -110,7 +116,7 @@ export function renderGardenView(container) {
     return;
   }
 
-  // Sort controls + bonus toggle
+  // Sort controls + bonus toggle + replay toggle
   const sortBar = document.createElement('div');
   sortBar.className = 'sort-bar';
   sortBar.innerHTML = `
@@ -120,10 +126,12 @@ export function renderGardenView(container) {
         `<button class="btn btn-sm sort-btn" data-sort="${m}">${m.charAt(0).toUpperCase() + m.slice(1)}</button>`
     ).join('')}
     <button class="btn btn-sm bonus-toggle-btn" id="bonusToggle">Show Bonuses</button>
+    <button class="btn btn-sm replay-toggle-btn" id="replayToggle">Replay Growth</button>
   `;
   container.appendChild(sortBar);
 
   let showBonuses = false;
+  let replayMode = false;
 
   // Grid
   const grid = document.createElement('div');
@@ -138,6 +146,7 @@ export function renderGardenView(container) {
     grid.innerHTML = '';
 
     const sorted = sortGarden(plants, currentSort);
+
     for (const plant of sorted) {
       const card = document.createElement('div');
       card.className = 'garden-card';
@@ -146,9 +155,13 @@ export function renderGardenView(container) {
       const canvasWrap = document.createElement('div');
       canvasWrap.className = 'garden-canvas-wrap';
 
-      // Animated thumbnail
-      const animator = new PlantAnimator(canvasWrap, plant, 3, { mini: true });
-      animator.start();
+      if (replayMode) {
+        const animator = new GrowthReplayAnimator(canvasWrap, plant, gardenMiniScale(plant), { durationMs: 4000 });
+        animator.start();
+      } else {
+        const animator = new PlantAnimator(canvasWrap, plant, gardenMiniScale(plant), { mini: true });
+        animator.start();
+      }
 
       // Unique plant styling
       if (plant.unique) {
@@ -193,7 +206,7 @@ export function renderGardenView(container) {
       card.appendChild(bonusEl);
 
       // Click for details
-      card.addEventListener('click', () => showPlantDetail(container, plant));
+      card.addEventListener('click', () => showPlantDetail(container, plant, replayMode));
 
       grid.appendChild(card);
     }
@@ -222,6 +235,15 @@ export function renderGardenView(container) {
     grid.querySelectorAll('.garden-card-bonus').forEach(el => {
       el.style.display = showBonuses ? '' : 'none';
     });
+  });
+
+  // Replay growth toggle
+  const replayToggle = sortBar.querySelector('#replayToggle');
+  replayToggle.addEventListener('click', () => {
+    replayMode = !replayMode;
+    replayToggle.textContent = replayMode ? 'Stop Replay' : 'Replay Growth';
+    replayToggle.classList.toggle('active', replayMode);
+    renderGrid();
   });
 }
 
@@ -290,7 +312,7 @@ export function renderGardenPicker(container, opts) {
 
       const canvasWrap = document.createElement('div');
       canvasWrap.className = 'garden-canvas-wrap';
-      const animator = new PlantAnimator(canvasWrap, plant, 3, { mini: true });
+      const animator = new PlantAnimator(canvasWrap, plant, gardenMiniScale(plant), { mini: true });
       animator.start();
 
       if (plant.unique) {
@@ -419,7 +441,7 @@ function showPickerConfirmOverlay(container, selectedPlants, actionTitle, onConf
   });
 }
 
-function showPlantDetail(container, plant) {
+function showPlantDetail(container, plant, replayMode) {
   const overlay = document.createElement('div');
   overlay.className = 'detail-overlay';
 
@@ -447,9 +469,12 @@ function showPlantDetail(container, plant) {
 
   container.appendChild(overlay);
 
-  // Animated detail view
+  // Animated detail view — use growth replay if replay mode is active
   const detailWrap = overlay.querySelector('.detail-canvas-wrap');
-  const animator = new PlantAnimator(detailWrap, plant, 5);
+  const detailScale = getCanvasSize(plant.rarity) >= 96 ? 4 : 5;
+  const animator = replayMode
+    ? new GrowthReplayAnimator(detailWrap, plant, detailScale, { durationMs: 4000 })
+    : new PlantAnimator(detailWrap, plant, detailScale);
   animator.start();
 
   const close = () => {

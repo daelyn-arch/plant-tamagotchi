@@ -5,12 +5,15 @@ import { RARITY_COLORS, RARITY } from './plant-data.js';
 import {
   ITEM_TYPES, RARITY_ORDER,
   useBoostItem, useAutoWater, useArtReroll, useGardenUpgrade, combinePlants,
-  useAnimate, removeItem,
+  useAnimate, usePotElement, removeItem,
 } from './items.js';
 import { PlantAnimator, stopAllAnimators } from './animation.js';
 import { renderPlantScaled } from './plant-generator.js';
 import { renderGardenPicker } from './garden.js';
 import { showScreen } from './ui.js';
+import { renderItemIcon } from './item-renderer.js';
+import { generatePlantFromSeed } from './growth.js';
+import { createRng } from './rng.js';
 
 // Callbacks set by main.js
 let _onItemUsed = null;
@@ -49,7 +52,7 @@ export function renderInventoryView(container) {
         ${state.activeBoosts.map(b => `
           <div class="active-boost-card">
             <span class="boost-name">${b.itemName}</span>
-            <span class="boost-detail">${b.type === 'watering_boost' ? 'Watering' : 'Day'} +${b.value}</span>
+            <span class="boost-detail">${b.type === 'watering_boost' ? 'Watering' : 'Consecutive Day'} +${b.value}</span>
             <span class="boost-remaining">${b.remainingPlants} plant${b.remainingPlants !== 1 ? 's' : ''} left</span>
           </div>
         `).join('')}
@@ -77,15 +80,20 @@ export function renderInventoryView(container) {
     card.className = 'inventory-card';
     card.style.borderColor = RARITY_COLORS[item.rarity] || '#6b7b3a';
 
-    card.innerHTML = `
-      <div class="item-icon" style="color:${RARITY_COLORS[item.rarity] || '#6b7b3a'}">${item.icon || '?'}</div>
-      <div class="item-card-info">
-        <span class="item-card-name" style="color:${RARITY_COLORS[item.rarity] || '#6b7b3a'}">${item.name}</span>
-        <span class="item-card-rarity">${item.rarity}</span>
-        <span class="item-card-desc">${item.description}</span>
-      </div>
+    const iconWrap = document.createElement('div');
+    iconWrap.className = 'item-icon';
+    iconWrap.appendChild(renderItemIcon(item.type, item.rarity, 4));
+
+    const info = document.createElement('div');
+    info.className = 'item-card-info';
+    info.innerHTML = `
+      <span class="item-card-name" style="color:${RARITY_COLORS[item.rarity] || '#6b7b3a'}">${item.name}</span>
+      <span class="item-card-rarity">${item.rarity}</span>
+      <span class="item-card-desc">${item.description}</span>
     `;
 
+    card.appendChild(iconWrap);
+    card.appendChild(info);
     card.addEventListener('click', () => showItemDetail(container, item));
     grid.appendChild(card);
   }
@@ -100,17 +108,23 @@ function showItemDetail(container, item) {
   const state = loadState();
   const canUse = getUseLabel(item, state);
 
-  overlay.innerHTML = `
-    <div class="detail-card item-detail-card">
-      <div class="item-detail-icon" style="color:${RARITY_COLORS[item.rarity] || '#6b7b3a'}">${item.icon || '?'}</div>
-      <h3 style="color:${RARITY_COLORS[item.rarity] || '#6b7b3a'}">${item.name}</h3>
-      <p class="detail-rarity">${item.rarity}</p>
-      <p class="item-detail-desc">${item.description}</p>
-      ${canUse ? `<button class="btn btn-water item-use-btn" id="itemUseBtn">Use</button>` : ''}
-      <button class="btn btn-close-detail">Close</button>
-    </div>
+  const card = document.createElement('div');
+  card.className = 'detail-card item-detail-card';
+
+  const iconWrap = document.createElement('div');
+  iconWrap.className = 'item-detail-icon';
+  iconWrap.appendChild(renderItemIcon(item.type, item.rarity, 6));
+
+  card.appendChild(iconWrap);
+  card.innerHTML += `
+    <h3 style="color:${RARITY_COLORS[item.rarity] || '#6b7b3a'}">${item.name}</h3>
+    <p class="detail-rarity">${item.rarity}</p>
+    <p class="item-detail-desc">${item.description}</p>
+    ${canUse ? `<button class="btn btn-water item-use-btn" id="itemUseBtn">${item.type === 'seed' ? 'Plant Seed' : 'Use'}</button>` : ''}
+    <button class="btn btn-close-detail">Close</button>
   `;
 
+  overlay.appendChild(card);
   container.appendChild(overlay);
 
   const close = () => overlay.remove();
@@ -143,6 +157,13 @@ function getUseLabel(item, state) {
       return state.garden.length >= 2 ? 'Combine Plants' : null;
     case 'animate':
       return 'Animate Plant';
+    case 'pot_fire':
+    case 'pot_ice':
+    case 'pot_earth':
+    case 'pot_wind':
+      return 'Apply to Plant';
+    case 'seed':
+      return 'Plant Seed';
     default:
       return null;
   }
@@ -156,7 +177,7 @@ function handleItemUse(container, item) {
     case 'day_boost': {
       if (useBoostItem(state, item.id)) {
         saveState(state);
-        showItemToast(`${item.name} activated! +${item.value} ${item.type === 'watering_boost' ? 'watering' : 'day'} bonus for ${item.duration} plant${item.duration > 1 ? 's' : ''}.`);
+        showItemToast(`${item.name} activated! +${item.value} ${item.type === 'watering_boost' ? 'watering' : 'consecutive day'} bonus for ${item.duration} plant${item.duration > 1 ? 's' : ''}.`);
         renderInventoryView(container);
         if (_onItemUsed) _onItemUsed();
       }
@@ -179,6 +200,13 @@ function handleItemUse(container, item) {
       showPlantPicker(container, item, state, 'animate');
       break;
     }
+    case 'pot_fire':
+    case 'pot_ice':
+    case 'pot_earth':
+    case 'pot_wind': {
+      showPlantPicker(container, item, state, 'pot_element');
+      break;
+    }
     case 'garden_upgrade': {
       showPlantPicker(container, item, state, 'upgrade');
       break;
@@ -187,22 +215,29 @@ function handleItemUse(container, item) {
       showCombinePicker(container, item, state);
       break;
     }
+    case 'seed': {
+      handleSeedUse(container, item, state);
+      break;
+    }
   }
 }
 
 function showPlantPicker(container, item, state, mode) {
   const gardenContainer = document.getElementById('gardenContainer');
-  const plants = (mode === 'reroll' || mode === 'animate')
+  const plants = (mode === 'reroll' || mode === 'animate' || mode === 'pot_element')
     ? [...state.garden, ...(state.currentPlant ? [state.currentPlant] : [])]
     : state.garden;
 
   const title = mode === 'reroll' ? 'Reroll Appearance'
     : mode === 'animate' ? 'Animate Plant'
+    : mode === 'pot_element' ? 'Apply Elemental Pot'
     : 'Upgrade Plant';
   const hint = mode === 'reroll'
     ? 'Select a plant to change its appearance.'
     : mode === 'animate'
     ? 'Select a plant to bring to life!'
+    : mode === 'pot_element'
+    ? 'Select a plant to transform its pot.'
     : 'Select a plant to permanently boost its bonus by 50%.';
 
   showScreen('gardenScreen');
@@ -220,6 +255,8 @@ function showPlantPicker(container, item, state, mode) {
         success = useArtReroll(freshState, item.id, ids[0]);
       } else if (mode === 'animate') {
         success = useAnimate(freshState, item.id, ids[0]);
+      } else if (mode === 'pot_element') {
+        success = usePotElement(freshState, item.id, ids[0]);
       } else {
         success = useGardenUpgrade(freshState, item.id, ids[0]);
       }
@@ -230,8 +267,10 @@ function showPlantPicker(container, item, state, mode) {
         const updatedState = loadState();
         const resultPlant = updatedState.garden.find(p => p.id === ids[0])
           || (updatedState.currentPlant && updatedState.currentPlant.id === ids[0] ? updatedState.currentPlant : null);
-        if (resultPlant && (mode === 'reroll' || mode === 'animate')) {
-          const heading = mode === 'animate' ? 'Plant Awakened!' : 'New Appearance';
+        if (resultPlant && (mode === 'reroll' || mode === 'animate' || mode === 'pot_element')) {
+          const heading = mode === 'animate' ? 'Plant Awakened!'
+            : mode === 'pot_element' ? 'Pot Transformed!'
+            : 'New Appearance';
           showResultPlant(gardenContainer, resultPlant, heading, () => {
             showScreen('inventoryScreen');
             renderInventoryView(container);
@@ -555,6 +594,14 @@ function showResultPlant(container, plant, heading, onDismiss) {
   `;
   wrap.appendChild(info);
 
+  // Adventure prompt after Life Spark
+  if (heading === 'Plant Awakened!') {
+    const adventureMsg = document.createElement('div');
+    adventureMsg.className = 'result-adventure-msg';
+    adventureMsg.textContent = 'Your plant seeks treasure! Help guide them on their adventure.';
+    wrap.appendChild(adventureMsg);
+  }
+
   const btn = document.createElement('button');
   btn.className = 'btn btn-water';
   btn.textContent = 'Continue';
@@ -565,6 +612,114 @@ function showResultPlant(container, plant, heading, onDismiss) {
 
   const animator = new PlantAnimator(canvasWrap, plant, 5);
   animator.start();
+}
+
+function handleSeedUse(container, item, state) {
+  // Show confirmation dialog
+  const overlay = document.createElement('div');
+  overlay.className = 'detail-overlay';
+
+  const card = document.createElement('div');
+  card.className = 'detail-card item-detail-card';
+
+  const iconWrap = document.createElement('div');
+  iconWrap.className = 'item-detail-icon';
+  iconWrap.appendChild(renderItemIcon(item.type, item.rarity, 6));
+  card.appendChild(iconWrap);
+
+  card.innerHTML += `
+    <h3 style="color:${RARITY_COLORS[item.rarity] || '#6b7b3a'}">Plant Seed?</h3>
+    <p class="item-detail-desc">This will replace your current plant with a new <strong>${item.seedTier}</strong> plant. Your current plant's progress will be lost.</p>
+    <p class="item-detail-desc">${item.description}</p>
+    <button class="btn btn-water" id="seedConfirmBtn">Plant Seed</button>
+    <button class="btn btn-close-detail" id="seedCancelBtn">Cancel</button>
+  `;
+
+  overlay.appendChild(card);
+  container.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.querySelector('#seedCancelBtn').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) close();
+  });
+
+  overlay.querySelector('#seedConfirmBtn').addEventListener('click', () => {
+    close();
+    const freshState = loadState();
+    const rng = createRng(Date.now() + parseInt(item.id, 36));
+    const newPlant = generatePlantFromSeed(item, rng);
+    if (!newPlant) {
+      showItemToast('Failed to generate plant from seed.');
+      return;
+    }
+
+    freshState.currentPlant = newPlant;
+    removeItem(freshState, item.id);
+    saveState(freshState);
+
+    // Switch to plant screen and play planting animation
+    showScreen('plantScreen');
+    const canvasWrap = document.getElementById('plantCanvasWrap');
+    showPlantingSequence(canvasWrap, item.rarity, () => {
+      if (_onItemUsed) _onItemUsed();
+      showItemToast(`Planted a ${newPlant.rarity} ${newPlant.species}!`);
+    });
+  });
+}
+
+function showPlantingSequence(canvasWrap, seedRarity, callback) {
+  const RARITY_ANIM_COLORS = {
+    Common:    { seed: '#7a8a4a', seedDark: '#4a5a2a', particle: '#6b7b3a', particleAlt: '#8a9b5a', flash: 'rgba(140, 170, 80, 0.6)', flashCenter: 'rgba(180, 210, 120, 0.95)' },
+    Uncommon:  { seed: '#3aaa6e', seedDark: '#1a6a3e', particle: '#2d8a4e', particleAlt: '#4aba6e', flash: 'rgba(60, 180, 100, 0.6)', flashCenter: 'rgba(100, 220, 140, 0.95)' },
+    Rare:      { seed: '#4a8ada', seedDark: '#1a4a8a', particle: '#2d6fba', particleAlt: '#5a9aea', flash: 'rgba(60, 130, 220, 0.6)', flashCenter: 'rgba(100, 170, 255, 0.95)' },
+    Epic:      { seed: '#9a5ac8', seedDark: '#5a2a7a', particle: '#7b3fa0', particleAlt: '#b87ae8', flash: 'rgba(140, 80, 200, 0.6)', flashCenter: 'rgba(180, 120, 240, 0.95)' },
+    Legendary: { seed: '#e0b830', seedDark: '#8a6a10', particle: '#c49a1a', particleAlt: '#f0d060', flash: 'rgba(220, 180, 50, 0.6)', flashCenter: 'rgba(255, 230, 100, 0.95)' },
+  };
+  const colors = RARITY_ANIM_COLORS[seedRarity] || RARITY_ANIM_COLORS.Common;
+
+  // Create planting overlay covering the canvas area
+  const overlay = document.createElement('div');
+  overlay.className = 'planting-overlay';
+  canvasWrap.appendChild(overlay);
+
+  // Stage 1 (0-400ms): Seed drops from top — use pixel art seed icon
+  const seedCanvas = renderItemIcon('seed', seedRarity, 6);
+  seedCanvas.className = 'planting-seed';
+  seedCanvas.style.background = 'none';
+  overlay.appendChild(seedCanvas);
+
+  // Stage 2 (400-800ms): Particles burst outward
+  setTimeout(() => {
+    const burst = document.createElement('div');
+    burst.className = 'planting-burst';
+    for (let i = 0; i < 12; i++) {
+      const angle = (i / 12) * Math.PI * 2;
+      const dist = 25 + Math.random() * 20;
+      const particle = document.createElement('div');
+      particle.className = 'planting-particle';
+      particle.style.background = i % 2 === 0 ? colors.particle : colors.particleAlt;
+      particle.style.setProperty('--dx', `${Math.cos(angle) * dist}px`);
+      particle.style.setProperty('--dy', `${Math.sin(angle) * dist - 20}px`);
+      particle.style.animationDelay = `${Math.random() * 0.1}s`;
+      burst.appendChild(particle);
+    }
+    overlay.appendChild(burst);
+  }, 400);
+
+  // Stage 3 (800-1200ms): Flash of light
+  setTimeout(() => {
+    const flash = document.createElement('div');
+    flash.className = 'planting-flash';
+    flash.style.background = `radial-gradient(circle, ${colors.flashCenter}, ${colors.flash} 35%, transparent 65%)`;
+    overlay.appendChild(flash);
+  }, 800);
+
+  // Stage 4 (1200ms+): Remove overlay, render new plant
+  setTimeout(() => {
+    overlay.remove();
+    if (callback) callback();
+  }, 1200);
 }
 
 function showItemToast(message) {

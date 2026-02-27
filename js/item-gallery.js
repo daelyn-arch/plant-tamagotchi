@@ -1,7 +1,8 @@
 // Item gallery — shows all item types, click for rarity-specific descriptions
 
-import { RARITY_COLORS } from './plant-data.js';
+import { RARITY_COLORS, RARITY } from './plant-data.js';
 import { ITEM_TYPES, RARITY_ORDER } from './items.js';
+import { renderItemIcon } from './item-renderer.js';
 
 let _onBack = null;
 export function setOnItemGalleryBack(cb) { _onBack = cb; }
@@ -38,11 +39,21 @@ export function renderItemGallery(container) {
     const card = document.createElement('div');
     card.className = 'item-gallery-card';
 
-    card.innerHTML = `
-      <div class="item-gallery-icon">${def.icon}</div>
-      <div class="item-gallery-name">${def.name}</div>
-      <div class="item-gallery-desc">${def.description}</div>
-    `;
+    const iconWrap = document.createElement('div');
+    iconWrap.className = 'item-gallery-icon';
+    iconWrap.appendChild(renderItemIcon(type, RARITY.RARE, 5));
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'item-gallery-name';
+    nameEl.textContent = def.name;
+
+    const descEl = document.createElement('div');
+    descEl.className = 'item-gallery-desc';
+    descEl.textContent = def.description;
+
+    card.appendChild(iconWrap);
+    card.appendChild(nameEl);
+    card.appendChild(descEl);
 
     card.addEventListener('click', () => showItemRarityDetail(container, type, def));
     grid.appendChild(card);
@@ -55,34 +66,65 @@ function showItemRarityDetail(container, type, def) {
   const overlay = document.createElement('div');
   overlay.className = 'detail-overlay';
 
-  let rarityRows = '';
+  const card = document.createElement('div');
+  card.className = 'detail-card ig-detail-card';
+
+  const iconWrap = document.createElement('div');
+  iconWrap.className = 'item-detail-icon';
+  iconWrap.appendChild(renderItemIcon(type, RARITY.LEGENDARY, 6));
+  card.appendChild(iconWrap);
+
+  const title = document.createElement('h3');
+  title.textContent = def.name;
+  card.appendChild(title);
+
+  const baseDesc = document.createElement('p');
+  baseDesc.className = 'ig-base-desc';
+  baseDesc.textContent = def.description;
+  card.appendChild(baseDesc);
+
+  const rarityList = document.createElement('div');
+  rarityList.className = 'ig-rarity-list';
+
   for (const rarity of RARITY_ORDER) {
     const color = RARITY_COLORS[rarity];
     const desc = def.getDescription ? def.getDescription(rarity) : def.description;
-    rarityRows += `
-      <div class="ig-rarity-row" style="border-left: 3px solid ${color}">
-        <span class="ig-rarity-label" style="color:${color}">${rarity}</span>
-        <span class="ig-rarity-desc">${desc}</span>
-      </div>
-    `;
+
+    const row = document.createElement('div');
+    row.className = 'ig-rarity-row';
+    row.style.borderLeft = `3px solid ${color}`;
+
+    const iconCell = document.createElement('div');
+    iconCell.className = 'ig-rarity-icon';
+    iconCell.appendChild(renderItemIcon(type, rarity, 3));
+
+    const label = document.createElement('span');
+    label.className = 'ig-rarity-label';
+    label.style.color = color;
+    label.textContent = rarity;
+
+    const descEl = document.createElement('span');
+    descEl.className = 'ig-rarity-desc';
+    descEl.textContent = desc;
+
+    row.appendChild(iconCell);
+    row.appendChild(label);
+    row.appendChild(descEl);
+    rarityList.appendChild(row);
   }
 
-  overlay.innerHTML = `
-    <div class="detail-card ig-detail-card">
-      <div class="item-detail-icon">${def.icon}</div>
-      <h3>${def.name}</h3>
-      <p class="ig-base-desc">${def.description}</p>
-      <div class="ig-rarity-list">
-        ${rarityRows}
-      </div>
-      <button class="btn btn-close-detail">Close</button>
-    </div>
-  `;
+  card.appendChild(rarityList);
 
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'btn btn-close-detail';
+  closeBtn.textContent = 'Close';
+  card.appendChild(closeBtn);
+
+  overlay.appendChild(card);
   container.appendChild(overlay);
 
   const close = () => overlay.remove();
-  overlay.querySelector('.btn-close-detail').addEventListener('click', close);
+  closeBtn.addEventListener('click', close);
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) close();
   });

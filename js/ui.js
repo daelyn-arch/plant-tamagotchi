@@ -8,26 +8,39 @@ import {
   currentDayBonus,
 } from './growth.js';
 import { todayStr } from './state.js';
+import { renderItemIcon } from './item-renderer.js';
 import { PlantAnimator } from './animation.js';
 
 // Active animator instance
 let activeAnimator = null;
+
+// Active growth animation (cancel if a new one starts)
+let growthAnimId = null;
 
 // Update the plant view with current state
 export function updatePlantView(state) {
   const plant = state.currentPlant;
   if (!plant) return;
 
-  // Stop any existing animation
-  stopAnimator();
+  // Cancel any running growth animation
+  if (growthAnimId) {
+    cancelAnimationFrame(growthAnimId);
+    growthAnimId = null;
+  }
 
-  // Start animated plant renderer
   const canvasWrap = document.getElementById('plantCanvasWrap');
-  canvasWrap.innerHTML = '';
   const scale = getPlantScale(plant);
 
-  activeAnimator = new PlantAnimator(canvasWrap, plant, scale);
-  activeAnimator.start();
+  // Reuse existing animator if same plant — avoids blink and preserves sway phase
+  if (activeAnimator && activeAnimator.running && activeAnimator.plant.id === plant.id && activeAnimator.scale === scale) {
+    activeAnimator.updatePlant(plant);
+  } else {
+    // Different plant or no animator — full rebuild
+    stopAnimator();
+    canvasWrap.innerHTML = '';
+    activeAnimator = new PlantAnimator(canvasWrap, plant, scale);
+    activeAnimator.start();
+  }
 
   // Plant info
   document.getElementById('plantName').textContent = plant.species;
@@ -36,30 +49,38 @@ export function updatePlantView(state) {
   document.getElementById('plantRarity').style.color = RARITY_COLORS[plant.rarity];
 
   // Progress bar
-  const pct = Math.floor(plant.growthStage * 100);
-  document.getElementById('progressFill').style.width = `${pct}%`;
+  const pct = Math.min(Math.floor(plant.growthStage * 100), 100);
+  const fill = document.getElementById('progressFill');
+  fill.style.width = `${pct}%`;
+  if (pct >= 100) {
+    fill.classList.add('progress-fill-complete');
+  } else {
+    fill.classList.remove('progress-fill-complete');
+  }
   document.getElementById('progressText').textContent = `${pct}%`;
+  const daysDisplay = Number.isInteger(plant.daysGrown) ? plant.daysGrown : plant.daysGrown.toFixed(2).replace(/\.?0+$/, '');
   document.getElementById('growthInfo').textContent =
-    `Day ${plant.daysGrown} / ${plant.totalDaysRequired}`;
+    `Day ${daysDisplay} / ${plant.totalDaysRequired}`;
 
   // Streak
   const streak = state.stats.currentStreak;
   const wBonus = streakBonus(streak, state.garden);
   const wCap = wateringBonusCap(state.garden);
-  const dBonus = currentDayBonus(state.garden);
   const dCap = dayBonusCap(state.garden);
+  const dBonus = currentDayBonus(state.garden, streak);
   const passiveCap = legendaryPassiveCap(state.garden);
   document.getElementById('streakCount').textContent = `${streak} day${streak !== 1 ? 's' : ''}`;
   const bonusEl = document.getElementById('streakBonus');
   const parts = [];
+  const fmt = v => Number.isInteger(v) ? v : +v.toFixed(2);
   if (wBonus > 0 || wCap > 0) {
-    parts.push(`watering: +${wBonus}/${wCap}`);
+    parts.push(`watering: +${fmt(wBonus)}`);
   }
   if (dBonus > 0 || dCap > 0) {
-    parts.push(`day: +${dBonus}`);
+    parts.push(`consecutive: +${fmt(dBonus)} (+${fmt(dCap)}/day)`);
   }
   if (passiveCap > 0) {
-    parts.push(`passive: +${passiveCap}/day`);
+    parts.push(`passive: +${fmt(passiveCap)}/day`);
   }
   if (parts.length > 0) {
     bonusEl.textContent = parts.join(' | ');
@@ -68,8 +89,123 @@ export function updatePlantView(state) {
     bonusEl.style.display = 'none';
   }
 
+  // Minigame button visibility — unlocked if any plant (current or garden) has been animated
+  const mgBtn = document.getElementById('minigameBtn');
+  if (mgBtn) {
+    const anyAnimated = (state.currentPlant && state.currentPlant.animated)
+      || state.garden.some(p => p.animated);
+    mgBtn.style.display = anyAnimated ? '' : 'none';
+  }
+
   // Water button state
   updateWaterButton(state);
+}
+
+/**
+ * Animate plant growth from oldGrowthStage to newState's growthStage.
+ * The plant visually grows through each intermediate phase and the progress bar fills smoothly.
+ * @param {number} oldGrowthStage — growth stage before watering (0–1)
+ * @param {object} newState — full state after watering
+ * @param {number} durationMs — animation duration in ms
+ */
+export function animateGrowthTransition(oldGrowthStage, newState, durationMs = 1500) {
+  const plant = newState.currentPlant;
+  if (!plant) return;
+
+  const targetStage = plant.growthStage;
+  const oldDaysGrown = oldGrowthStage * plant.totalDaysRequired;
+
+  // If no actual change, just snap
+  if (Math.abs(targetStage - oldGrowthStage) < 0.001) {
+    updatePlantView(newState);
+    return;
+  }
+
+  // Cancel any prior animation
+  if (growthAnimId) {
+    cancelAnimationFrame(growthAnimId);
+    growthAnimId = null;
+  }
+
+  // Ensure animator exists for this plant
+  const canvasWrap = document.getElementById('plantCanvasWrap');
+  const scale = getPlantScale(plant);
+  if (!activeAnimator || !activeAnimator.running || activeAnimator.plant.id !== plant.id) {
+    stopAnimator();
+    canvasWrap.innerHTML = '';
+    activeAnimator = new PlantAnimator(canvasWrap, { ...plant, growthStage: oldGrowthStage }, scale);
+    activeAnimator.start();
+  }
+
+  // Update static text elements immediately
+  document.getElementById('plantName').textContent = plant.species;
+  document.getElementById('plantName').style.color = RARITY_COLORS[plant.rarity];
+  document.getElementById('plantRarity').textContent = plant.rarity;
+  document.getElementById('plantRarity').style.color = RARITY_COLORS[plant.rarity];
+  updateWaterButton(newState);
+
+  // Update streak info immediately
+  const streak = newState.stats.currentStreak;
+  const wBonus = streakBonus(streak, newState.garden);
+  const wCap = wateringBonusCap(newState.garden);
+  const dCap = dayBonusCap(newState.garden);
+  const dBonus = currentDayBonus(newState.garden, streak);
+  const passiveCap = legendaryPassiveCap(newState.garden);
+  document.getElementById('streakCount').textContent = `${streak} day${streak !== 1 ? 's' : ''}`;
+  const bonusEl = document.getElementById('streakBonus');
+  const parts = [];
+  const fmt = v => Number.isInteger(v) ? v : +v.toFixed(2);
+  if (wBonus > 0 || wCap > 0) parts.push(`watering: +${fmt(wBonus)}`);
+  if (dBonus > 0 || dCap > 0) parts.push(`consecutive: +${fmt(dBonus)} (+${fmt(dCap)}/day)`);
+  if (passiveCap > 0) parts.push(`passive: +${fmt(passiveCap)}/day`);
+  if (parts.length > 0) { bonusEl.textContent = parts.join(' | '); bonusEl.style.display = ''; }
+  else { bonusEl.style.display = 'none'; }
+
+  const fill = document.getElementById('progressFill');
+  const progressText = document.getElementById('progressText');
+  const growthInfo = document.getElementById('growthInfo');
+  const startTime = performance.now();
+
+  function tick(now) {
+    const elapsed = now - startTime;
+    const t = Math.min(1, elapsed / durationMs);
+    // Ease-out curve for natural deceleration
+    const eased = 1 - (1 - t) * (1 - t);
+
+    const currentStage = oldGrowthStage + (targetStage - oldGrowthStage) * eased;
+    const currentDays = oldDaysGrown + (plant.daysGrown - oldDaysGrown) * eased;
+    const pct = Math.min(Math.floor(currentStage * 100), 100);
+
+    // Update progress bar
+    fill.style.width = `${pct}%`;
+    if (pct >= 100) {
+      fill.classList.add('progress-fill-complete');
+    } else {
+      fill.classList.remove('progress-fill-complete');
+    }
+    progressText.textContent = `${pct}%`;
+    const daysDisplay = Math.floor(currentDays * 100) / 100;
+    const daysStr = Number.isInteger(daysDisplay) ? daysDisplay : daysDisplay.toFixed(2).replace(/\.?0+$/, '');
+    growthInfo.textContent = `Day ${daysStr} / ${plant.totalDaysRequired}`;
+
+    // Update plant visual at intermediate growth stage
+    if (activeAnimator && activeAnimator.running) {
+      const tempPlant = { ...plant, growthStage: currentStage };
+      activeAnimator.updatePlant(tempPlant);
+    }
+
+    if (t < 1) {
+      growthAnimId = requestAnimationFrame(tick);
+    } else {
+      growthAnimId = null;
+      // Snap to final state
+      if (activeAnimator && activeAnimator.running) {
+        activeAnimator.updatePlant(plant);
+      }
+    }
+  }
+
+  growthAnimId = requestAnimationFrame(tick);
 }
 
 function getPlantScale(plant) {
@@ -198,36 +334,50 @@ export function showCompletionOverlay(plant, stats, droppedItems) {
   if (dBonusValue > 0) {
     bonusBoxes += `
       <div class="completion-stat-bonus">
-        <span class="stat-label">Day Bonus${isLegendary ? ' <span class="passive-tag">PASSIVE</span>' : ''}</span>
-        <span class="stat-value" style="color:${RARITY_COLORS[plant.rarity]}">+${dBonusValue}</span>
+        <span class="stat-label">Consecutive Bonus${isLegendary ? ' <span class="passive-tag">PASSIVE</span>' : ''}</span>
+        <span class="stat-value" style="color:${RARITY_COLORS[plant.rarity]}">+${dBonusValue}/day</span>
       </div>
     `;
   }
 
-  let itemDropsHtml = '';
-  if (droppedItems && droppedItems.length > 0) {
-    itemDropsHtml = `
-      <div class="completion-item-drops">
-        <div class="drops-heading">Items Found!</div>
-        ${droppedItems.map(item => `
-          <div class="dropped-item" style="border-color:${RARITY_COLORS[item.rarity] || '#6b7b3a'}">
-            <span class="dropped-item-name" style="color:${RARITY_COLORS[item.rarity] || '#6b7b3a'}">${item.name}</span>
-            <span class="dropped-item-desc">${item.description}</span>
-          </div>
-        `).join('')}
-      </div>
-    `;
-  }
-
-  document.getElementById('completionStats').innerHTML = `
+  const statsEl = document.getElementById('completionStats');
+  statsEl.innerHTML = `
     ${bonusBoxes}
     <div class="completion-stat-lines">
       <p>Days visited: <strong>${daysVisited}</strong></p>
       <p>Growth days applied: <strong>${plant.daysGrown}</strong></p>
       <p>Required: <strong>${plant.totalDaysRequired}</strong></p>
     </div>
-    ${itemDropsHtml}
   `;
+
+  if (droppedItems && droppedItems.length > 0) {
+    const dropsWrap = document.createElement('div');
+    dropsWrap.className = 'completion-item-drops';
+    dropsWrap.innerHTML = '<div class="drops-heading">Items Found!</div>';
+
+    for (const item of droppedItems) {
+      const dropEl = document.createElement('div');
+      dropEl.className = 'dropped-item';
+      dropEl.style.borderColor = RARITY_COLORS[item.rarity] || '#6b7b3a';
+
+      const iconEl = document.createElement('div');
+      iconEl.className = 'dropped-item-icon';
+      iconEl.appendChild(renderItemIcon(item.type, item.rarity, 3));
+
+      const textWrap = document.createElement('div');
+      textWrap.className = 'dropped-item-text';
+      textWrap.innerHTML = `
+        <span class="dropped-item-name" style="color:${RARITY_COLORS[item.rarity] || '#6b7b3a'}">${item.name}</span>
+        <span class="dropped-item-desc">${item.description}</span>
+      `;
+
+      dropEl.appendChild(iconEl);
+      dropEl.appendChild(textWrap);
+      dropsWrap.appendChild(dropEl);
+    }
+
+    statsEl.appendChild(dropsWrap);
+  }
 }
 
 export function hideCompletionOverlay() {

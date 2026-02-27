@@ -8,6 +8,7 @@ import {
   clearCanvas,
   generatePalette,
   hsl,
+  ELEMENTAL_POT_PALETTES,
 } from './canvas-utils.js';
 import {
   getCanvasSize,
@@ -17,8 +18,10 @@ import {
 
 // ── Pot ────────────────────────────────────────────────────────────
 
-function drawPot(ctx, size, palette, rng) {
-  const potColors = palette.pot;
+function drawPot(ctx, size, palette, rng, potElement) {
+  const elePalette = potElement && ELEMENTAL_POT_PALETTES[potElement];
+  const potColors = elePalette ? elePalette.pot : palette.pot;
+  const soilColors = elePalette ? elePalette.soil : palette.soil;
   const bottomY = size - 1;
   const potHeight = Math.max(5, Math.floor(size * 0.24));
   const rimHeight = Math.max(2, Math.floor(potHeight * 0.28));
@@ -77,7 +80,7 @@ function drawPot(ctx, size, palette, rng) {
   const soilLeft = cx - Math.floor(soilW / 2);
   for (let row = 0; row < 2; row++) {
     for (let x = soilLeft; x < soilLeft + soilW; x++) {
-      const c = rng.chance(0.35) ? palette.soil[0] : palette.soil[1];
+      const c = rng.chance(0.35) ? soilColors[0] : soilColors[1];
       setPixel(ctx, x, soilY - row, c);
     }
   }
@@ -91,6 +94,50 @@ function drawPot(ctx, size, palette, rng) {
     for (let x = decoLeft; x < decoLeft + decoW; x++) {
       if (rng.chance(0.7)) {
         setPixel(ctx, x, decoY, potColors[2]);
+      }
+    }
+  }
+
+  // Elemental rim decoration
+  if (elePalette) {
+    const rimTopY = potTop + 1;
+    const eleRimW = rimW - 2;
+    const eleRimLeft = cx - Math.floor(eleRimW / 2);
+
+    if (potElement === 'fire') {
+      // Flickering orange/red pixels along rim top
+      for (let x = eleRimLeft; x < eleRimLeft + eleRimW; x++) {
+        if (rng.chance(0.6)) {
+          const fc = rng.chance(0.5) ? '#e06020' : '#f0a030';
+          setPixel(ctx, x, rimTopY - 1, fc);
+          if (rng.chance(0.4)) setPixel(ctx, x, rimTopY - 2, '#f0c040');
+        }
+      }
+    } else if (potElement === 'ice') {
+      // Cyan/white crystal protrusions hanging from rim
+      for (let x = eleRimLeft; x < eleRimLeft + eleRimW; x += 3) {
+        const ic = rng.chance(0.5) ? '#80d0f0' : '#a0e0ff';
+        setPixel(ctx, x, rimTopY - 1, ic);
+        if (rng.chance(0.6)) {
+          setPixel(ctx, x, rimTopY - 2, '#e0f4ff');
+          if (rng.chance(0.4)) setPixel(ctx, x + 1, rimTopY - 1, '#60c0e0');
+        }
+      }
+    } else if (potElement === 'earth') {
+      // Small brown/amber rock bumps on rim
+      for (let x = eleRimLeft + 1; x < eleRimLeft + eleRimW - 1; x += 4) {
+        const rc = rng.chance(0.5) ? '#c09040' : '#7a6040';
+        setPixel(ctx, x, rimTopY - 1, rc);
+        setPixel(ctx, x + 1, rimTopY - 1, rc);
+        if (rng.chance(0.5)) setPixel(ctx, x, rimTopY - 2, '#a08860');
+      }
+    } else if (potElement === 'wind') {
+      // Teal swirl lines along rim
+      for (let x = eleRimLeft; x < eleRimLeft + eleRimW; x++) {
+        if ((x + rng.int(0, 2)) % 3 === 0) {
+          const wc = rng.chance(0.5) ? '#70d0c0' : '#3a9a8a';
+          setPixel(ctx, x, rimTopY - 1, wc);
+        }
       }
     }
   }
@@ -571,7 +618,7 @@ function drawCrystalTrunk(ctx, cx, soilY, height, rng, size) {
   const driftDir = rng.chance(0.5) ? 1 : -1;
 
   // Crystal trunk is slightly thicker, faceted
-  const baseThick = 3;
+  const baseThick = 4;
 
   for (let y = soilY - 1; y >= stemTop; y--) {
     drift += (rng.random() - 0.5 + driftDir * 0.04);
@@ -605,30 +652,45 @@ function drawCrystalBranches(ctx, stemPoints, rng, size, trunkHue) {
     hsl(trunkHue, 20, 60),
   ];
   const branchPoints = [];
-  const numBranches = rng.int(3, 6);
+  const numBranches = rng.int(15, 30);
 
   for (let i = 0; i < numBranches; i++) {
     const idx = rng.int(
-      Math.floor(stemPoints.length * 0.2),
-      Math.floor(stemPoints.length * 0.85)
+      Math.floor(stemPoints.length * 0.25),
+      Math.floor(stemPoints.length * 0.9)
     );
     const start = stemPoints[idx];
     if (!start) continue;
 
-    const dir = rng.chance(0.5) ? -1 : 1;
-    const branchLen = rng.int(3, Math.max(5, Math.floor(size * 0.2)));
+    const dir = (i % 2 === 0) ? -1 : 1;
+    const branchLen = rng.int(6, Math.max(12, Math.floor(size * 0.28)));
     let bx = start.x;
     let by = start.y;
 
     for (let j = 0; j < branchLen; j++) {
       bx += dir;
-      if (rng.chance(0.55)) by -= 1;
+      if (rng.chance(0.2)) by -= 1;
+      else if (rng.chance(0.15)) by += 1;
       const shade = j < 2 ? 0 : j > branchLen - 2 ? 2 : 1;
       setPixel(ctx, bx, by, branchColors[shade]);
       if (j < branchLen * 0.4) {
         setPixel(ctx, bx, by + 1, branchColors[0]);
       }
       branchPoints.push({ x: bx, y: by });
+
+      // Sub-branches for canopy density
+      if (j > branchLen * 0.4 && rng.chance(0.3)) {
+        const subDir = rng.chance(0.6) ? dir : -dir;
+        let sx = bx, sy = by;
+        const subLen = rng.int(3, 5);
+        for (let s = 0; s < subLen; s++) {
+          sx += subDir;
+          if (rng.chance(0.25)) sy -= 1;
+          else if (rng.chance(0.2)) sy += 1;
+          setPixel(ctx, sx, sy, branchColors[2]);
+          branchPoints.push({ x: sx, y: sy });
+        }
+      }
     }
   }
 
@@ -710,13 +772,13 @@ function drawCrystalShards(ctx, points, palette, rng, growthStage, size) {
   const topPoints = sorted.slice(0, Math.max(12, Math.floor(sorted.length * 0.5)));
 
   // Large prominent crystals at the crown
-  const numLarge = Math.min(5, Math.max(1, Math.floor(growthStage * 5)));
+  const numLarge = Math.min(25, Math.max(3, Math.floor(growthStage * 25)));
   const placed = [];
 
   for (let i = 0; i < numLarge; i++) {
     const pt = rng.pick(topPoints);
-    const tooClose = placed.some(p => Math.abs(p.x - pt.x) + Math.abs(p.y - pt.y) < 4);
-    if (tooClose && i > 0) continue;
+    const tooClose = placed.some(p => Math.abs(p.x - pt.x) + Math.abs(p.y - pt.y) < 3);
+    if (tooClose && i > 2) continue;
     placed.push(pt);
 
     const h = rng.int(5, Math.max(7, Math.floor(size * 0.18)));
@@ -726,7 +788,7 @@ function drawCrystalShards(ctx, points, palette, rng, growthStage, size) {
   }
 
   // Medium crystals scattered around
-  const numMedium = Math.min(8, Math.floor(growthStage * 8));
+  const numMedium = Math.min(40, Math.floor(growthStage * 40));
   for (let i = 0; i < numMedium; i++) {
     const pt = rng.pick(topPoints);
     const h = rng.int(3, Math.max(4, Math.floor(size * 0.1)));
@@ -937,6 +999,7 @@ function renderHybridPlant(plant, growthStage, frameOffset) {
     hasFlowers: baseParent.hasFlowers,
     complexity: baseParent.complexity || 2,
     rarity: plant.rarity,
+    potElement: plant.potElement,
   };
 
   const overlayPlant = {
@@ -1003,6 +1066,854 @@ function renderHybridPlant(plant, growthStage, frameOffset) {
 
 // ── Main render ────────────────────────────────────────────────────
 
+// ── Clover Patch — low ground cover with multiple 3-leaf clovers ──
+
+function drawCloverPatch(ctx, cx, soilY, palette, rng, growthStage, size) {
+  const green = palette.greens;
+  const numClovers = Math.max(1, Math.floor(growthStage * 8));
+  const baseY = soilY - 2;
+
+  for (let i = 0; i < numClovers; i++) {
+    const ox = cx + rng.int(-Math.floor(size * 0.3), Math.floor(size * 0.3));
+    const oy = baseY - rng.int(1, Math.floor(size * 0.35 * growthStage));
+    const stemLen = rng.int(2, 4);
+
+    // Tiny stem
+    for (let s = 0; s < stemLen; s++) {
+      setPixel(ctx, ox, oy + s, green[0]);
+    }
+
+    // 3 leaves arranged in a fan
+    const leafSize = rng.int(1, 2);
+    const offsets = [[-2, -1], [0, -2], [2, -1]];
+    for (const [dx, dy] of offsets) {
+      const lx = ox + dx;
+      const ly = oy + dy;
+      setPixel(ctx, lx, ly, green[2]);
+      if (leafSize > 1) {
+        setPixel(ctx, lx, ly - 1, green[1]);
+        setPixel(ctx, lx - 1, ly, green[1]);
+        setPixel(ctx, lx + 1, ly, green[1]);
+      }
+    }
+  }
+}
+
+// ── Pitcher Plant — carnivorous tube shapes ──
+
+function drawPitcherPlant(ctx, cx, soilY, height, palette, rng, growthStage, size) {
+  const green = palette.greens;
+  const numPitchers = Math.max(1, Math.floor(growthStage * 3));
+  const stemProgress = Math.min(1, growthStage / 0.7);
+
+  for (let i = 0; i < numPitchers; i++) {
+    const offsetX = i === 0 ? 0 : rng.int(-4, 4);
+    const pitcherH = Math.max(3, Math.floor(height * 0.7 * stemProgress));
+    const baseX = cx + offsetX;
+    const baseY = soilY - 2;
+
+    // Stem going up
+    for (let y = 0; y < pitcherH; y++) {
+      setPixel(ctx, baseX, baseY - y, green[0]);
+    }
+
+    // Pitcher tube (bulges outward)
+    const tubeTop = baseY - pitcherH;
+    const tubeH = Math.max(3, Math.floor(pitcherH * 0.5));
+    for (let y = 0; y < tubeH; y++) {
+      const t = y / tubeH;
+      const w = Math.max(1, Math.round(Math.sin(t * Math.PI) * 3));
+      for (let dx = -w; dx <= w; dx++) {
+        const isEdge = Math.abs(dx) === w;
+        const c = isEdge ? green[0] : (t > 0.6 ? '#8a3030' : green[1]);
+        setPixel(ctx, baseX + dx, tubeTop + y, c);
+      }
+    }
+
+    // Lid/hood at top
+    if (growthStage > 0.5) {
+      const lidW = 3;
+      for (let dx = -lidW; dx <= lidW; dx++) {
+        setPixel(ctx, baseX + dx, tubeTop - 1, green[2]);
+        if (Math.abs(dx) < lidW) setPixel(ctx, baseX + dx, tubeTop - 2, green[3]);
+      }
+    }
+  }
+}
+
+// ── Glowing Nightshade — dark stems with glowing berries ──
+
+function drawNightshadeBerries(ctx, points, rng, growthStage, size) {
+  if (growthStage < 0.5) return;
+  const berryProgress = Math.min(1, (growthStage - 0.5) / 0.4);
+  const numBerries = Math.max(1, Math.floor(berryProgress * 8));
+  const topPoints = [...points].sort((a, b) => a.y - b.y).slice(0, Math.max(5, Math.floor(points.length * 0.4)));
+
+  const berryColors = ['#4a1a5a', '#6a2a8a', '#8a3ab0'];
+  const glowColor = '#c070f0';
+
+  for (let i = 0; i < numBerries; i++) {
+    const pt = rng.pick(topPoints);
+    const bx = pt.x + rng.int(-1, 1);
+    const by = pt.y + rng.int(-1, 1);
+
+    // Glow pixel (behind berry)
+    if (berryProgress > 0.5) {
+      setPixel(ctx, bx - 1, by, glowColor);
+      setPixel(ctx, bx + 1, by, glowColor);
+      setPixel(ctx, bx, by - 1, glowColor);
+      setPixel(ctx, bx, by + 1, glowColor);
+    }
+    // Berry
+    setPixel(ctx, bx, by, rng.pick(berryColors));
+    if (rng.chance(0.5)) setPixel(ctx, bx + 1, by, berryColors[1]);
+  }
+}
+
+// ── Stormvine — twisting vine with lightning crackle pixels ──
+
+function drawStormvine(ctx, cx, soilY, height, palette, rng, growthStage, size) {
+  const green = palette.greens;
+  const stemProgress = Math.min(1, growthStage / 0.7);
+  const vineH = Math.max(3, Math.floor(height * stemProgress));
+  const points = [];
+
+  // Two intertwining vines
+  for (let v = 0; v < 2; v++) {
+    let vx = cx + (v === 0 ? -1 : 1);
+    for (let y = 0; y < vineH; y++) {
+      const wave = Math.sin(y * 0.4 + v * Math.PI) * 2;
+      const px = Math.round(vx + wave);
+      const py = soilY - 2 - y;
+      setPixel(ctx, px, py, green[v]);
+      points.push({ x: px, y: py });
+      // Tendril offshoots
+      if (y % 4 === 0 && growthStage > 0.3) {
+        const dir = rng.chance(0.5) ? -1 : 1;
+        for (let t = 1; t <= 2; t++) {
+          setPixel(ctx, px + dir * t, py - t, green[2]);
+          points.push({ x: px + dir * t, y: py - t });
+        }
+      }
+    }
+  }
+
+  // Lightning crackle pixels (at higher growth)
+  if (growthStage > 0.6) {
+    const numBolts = Math.floor((growthStage - 0.6) * 8);
+    const boltColors = ['#a0d0ff', '#ffffff', '#70b0e0'];
+    for (let i = 0; i < numBolts; i++) {
+      const pt = rng.pick(points);
+      setPixel(ctx, pt.x + rng.int(-1, 1), pt.y + rng.int(-1, 1), rng.pick(boltColors));
+    }
+  }
+
+  return points;
+}
+
+// ── Golden Lotus — metallic gold flower that opens/closes ──
+
+function drawGoldenLotusPetals(ctx, points, rng, growthStage, size) {
+  if (growthStage < 0.7) return;
+  const bloom = Math.min(1, (growthStage - 0.7) / 0.25);
+  const goldColors = ['#8a6a10', '#c49a1a', '#e0b830', '#f0d050', '#fff0a0'];
+  const topPt = [...points].sort((a, b) => a.y - b.y)[0];
+  if (!topPt) return;
+
+  const numPetals = 8;
+  const petalLen = Math.max(2, Math.floor(size * 0.12 * bloom));
+
+  for (let p = 0; p < numPetals; p++) {
+    const angle = (p * Math.PI * 2) / numPetals;
+    for (let r = 0; r < petalLen; r++) {
+      const rt = r / petalLen;
+      const px = Math.round(topPt.x + Math.cos(angle) * r);
+      const py = Math.round(topPt.y + Math.sin(angle) * r * 0.6);
+      const w = Math.max(1, Math.round(Math.sin(rt * Math.PI) * 2));
+      const perp = angle + Math.PI / 2;
+      for (let ww = -Math.floor(w / 2); ww <= Math.floor(w / 2); ww++) {
+        const wx = Math.round(px + Math.cos(perp) * ww);
+        const wy = Math.round(py + Math.sin(perp) * ww * 0.6);
+        const ci = Math.abs(ww) === Math.floor(w / 2) ? 1 : (rt < 0.5 ? 3 : 4);
+        setPixel(ctx, wx, wy, goldColors[ci]);
+      }
+    }
+  }
+
+  // Glowing center
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      setPixel(ctx, topPt.x + dx, topPt.y + dy, goldColors[4]);
+    }
+  }
+  setPixel(ctx, topPt.x, topPt.y, '#ffffff');
+}
+
+// ── Emberthorn — dark thorny stem with glowing ember core ──
+
+function drawEmberthornCore(ctx, points, rng, growthStage, size) {
+  if (growthStage < 0.6) return;
+  const emberProgress = Math.min(1, (growthStage - 0.6) / 0.3);
+  const emberColors = ['#8a2a0a', '#c04010', '#e06020', '#f0a040', '#fff0a0'];
+  const topPoints = [...points].sort((a, b) => a.y - b.y).slice(0, 5);
+
+  // Ember glow at top
+  const pt = topPoints[0];
+  if (!pt) return;
+  const r = Math.max(1, Math.floor(3 * emberProgress));
+  for (let dy = -r; dy <= r; dy++) {
+    for (let dx = -r; dx <= r; dx++) {
+      const dist = Math.abs(dx) + Math.abs(dy);
+      if (dist <= r) {
+        const ci = Math.min(4, dist);
+        setPixel(ctx, pt.x + dx, pt.y + dy, emberColors[4 - ci]);
+      }
+    }
+  }
+
+  // Thorns along stem
+  for (let i = 0; i < points.length; i += 3) {
+    const p = points[i];
+    if (rng.chance(0.4)) {
+      const dir = rng.chance(0.5) ? -1 : 1;
+      setPixel(ctx, p.x + dir, p.y - 1, '#5a3a2a');
+      setPixel(ctx, p.x + dir * 2, p.y - 2, '#4a2a1a');
+    }
+  }
+
+  // Spark particles
+  if (emberProgress > 0.5) {
+    const numSparks = Math.floor(emberProgress * 4);
+    for (let i = 0; i < numSparks; i++) {
+      const sx = pt.x + rng.int(-3, 3);
+      const sy = pt.y + rng.int(-4, 1);
+      setPixel(ctx, sx, sy, rng.pick(['#f0a040', '#fff0a0']));
+    }
+  }
+}
+
+// ── Marigold — bushy plant with round pom-pom flower clusters ──
+
+function drawMarigold(ctx, cx, soilY, height, palette, rng, growthStage, size) {
+  const green = palette.greens;
+  const stemProgress = Math.min(1, growthStage / 0.7);
+  const stemH = Math.max(3, Math.floor(height * 0.6 * stemProgress));
+  const points = [];
+
+  // Short thick central stem
+  let drift = 0;
+  for (let y = 0; y < stemH; y++) {
+    drift += (rng.random() - 0.5) * 0.15;
+    const px = Math.round(cx + drift);
+    const py = soilY - 2 - y;
+    setPixel(ctx, px, py, green[1]);
+    setPixel(ctx, px - 1, py, green[0]);
+    points.push({ x: px, y: py });
+  }
+
+  // Bushy side branches that fan out wide
+  if (growthStage > 0.2) {
+    const numSideShoots = Math.max(2, Math.floor(growthStage * 6));
+    for (let i = 0; i < numSideShoots; i++) {
+      const idx = rng.int(Math.floor(points.length * 0.3), points.length - 1);
+      const start = points[idx];
+      if (!start) continue;
+      const dir = (i % 2 === 0) ? -1 : 1;
+      const len = rng.int(3, 5);
+      let bx = start.x, by = start.y;
+      for (let j = 0; j < len; j++) {
+        bx += dir;
+        if (rng.chance(0.6)) by -= 1;
+        setPixel(ctx, bx, by, green[rng.chance(0.5) ? 0 : 1]);
+        points.push({ x: bx, y: by });
+      }
+    }
+  }
+
+  // Round bushy leaves
+  if (growthStage > 0.15) {
+    const leafPts = [...points].sort((a, b) => a.y - b.y).slice(0, Math.floor(points.length * 0.6));
+    for (const pt of leafPts) {
+      if (rng.chance(0.5)) {
+        for (let dx = -1; dx <= 1; dx++) {
+          for (let dy = -1; dy <= 1; dy++) {
+            if (Math.abs(dx) + Math.abs(dy) <= 1 && rng.chance(0.7)) {
+              setPixel(ctx, pt.x + dx, pt.y + dy, green[rng.int(1, 2)]);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Pom-pom flowers — round clustered balls in warm orange/yellow
+  if (growthStage > 0.7) {
+    const bloom = Math.min(1, (growthStage - 0.7) / 0.25);
+    const numFlowers = Math.max(2, Math.floor(bloom * 5));
+    const pomColors = ['#c06010', '#d88020', '#e8a030', '#f0c040', '#f8e060'];
+    const topPts = [...points].sort((a, b) => a.y - b.y).slice(0, 12);
+    const placed = [];
+
+    for (let i = 0; i < numFlowers; i++) {
+      let best = null;
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const pt = rng.pick(topPts);
+        const tooClose = placed.some(p => Math.abs(p.x - pt.x) + Math.abs(p.y - pt.y) < 4);
+        if (!tooClose) { best = pt; break; }
+        if (!best) best = pt;
+      }
+      if (!best) continue;
+      placed.push(best);
+
+      // Round pom-pom: concentric circles
+      const r = Math.max(1, Math.floor(bloom * 2.5));
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          const dist = dx * dx + dy * dy;
+          if (dist <= r * r) {
+            const ci = Math.min(4, Math.floor(dist / (r * r) * 4));
+            setPixel(ctx, best.x + dx, best.y + dy, pomColors[ci]);
+          }
+        }
+      }
+      // Bright center
+      setPixel(ctx, best.x, best.y, pomColors[4]);
+    }
+  }
+
+  return points;
+}
+
+// ── Lavender — tall thin stems with purple flower spikes ──
+
+function drawLavender(ctx, cx, soilY, height, palette, rng, growthStage, size) {
+  const green = palette.greens;
+  const stemProgress = Math.min(1, growthStage / 0.7);
+  const fullH = Math.max(3, Math.floor(height * stemProgress));
+  const points = [];
+
+  // Multiple tall thin stems fanning out
+  const numStems = rng.int(4, 6);
+  const spikeStems = [];
+
+  for (let s = 0; s < numStems; s++) {
+    const spread = (s - (numStems - 1) / 2) * 1.8;
+    let sx = cx + Math.round(spread);
+    let drift = 0;
+    const stemH = Math.max(3, Math.floor(fullH * rng.float(0.8, 1.0)));
+    const stemPts = [];
+
+    for (let y = 0; y < stemH; y++) {
+      drift += spread * 0.02 + (rng.random() - 0.5) * 0.1;
+      const px = Math.round(sx + drift);
+      const py = soilY - 2 - y;
+      setPixel(ctx, px, py, green[1]);
+      const pt = { x: px, y: py };
+      points.push(pt);
+      stemPts.push(pt);
+    }
+
+    // Small narrow leaves along stem
+    if (growthStage > 0.2 && stemPts.length > 4) {
+      for (let l = 2; l < stemPts.length - 2; l += 3) {
+        const lp = stemPts[l];
+        const dir = (l % 2 === 0) ? -1 : 1;
+        setPixel(ctx, lp.x + dir, lp.y, green[2]);
+        setPixel(ctx, lp.x + dir * 2, lp.y - 1, green[2]);
+      }
+    }
+
+    spikeStems.push(stemPts);
+  }
+
+  // Purple flower spikes at the top of each stem
+  if (growthStage > 0.7) {
+    const bloom = Math.min(1, (growthStage - 0.7) / 0.25);
+    const spikeColors = ['#4a2080', '#6a30a0', '#8a40c0', '#a060d0', '#c080e0'];
+
+    for (const stemPts of spikeStems) {
+      if (stemPts.length < 3) continue;
+      const spikeLen = Math.max(2, Math.floor(stemPts.length * 0.35 * bloom));
+
+      for (let i = 0; i < spikeLen; i++) {
+        const idx = stemPts.length - 1 - i;
+        if (idx < 0) break;
+        const pt = stemPts[idx];
+        const t = i / spikeLen;
+        // Wider at base, narrow at tip
+        const w = Math.max(0, Math.round((1 - t) * 1.5));
+        for (let dx = -w; dx <= w; dx++) {
+          const ci = Math.min(4, Math.abs(dx) + Math.floor(t * 2));
+          setPixel(ctx, pt.x + dx, pt.y, spikeColors[ci]);
+        }
+        // Tiny buds alternating
+        if (i % 2 === 0 && w > 0) {
+          setPixel(ctx, pt.x - w - 1, pt.y, spikeColors[4]);
+          setPixel(ctx, pt.x + w + 1, pt.y, spikeColors[4]);
+        }
+      }
+    }
+  }
+
+  return points;
+}
+
+// ── Starfall Magnolia — silver tree with star-petal blossoms ──
+
+function drawStarfallMagnolia(ctx, cx, soilY, height, rng, growthStage, size) {
+  const stemProgress = Math.min(1, growthStage / 0.7);
+  const trunkH = Math.max(3, Math.floor(height * stemProgress));
+  const trunkColors = ['#4a4a5a', '#6a6a7a', '#8a8a9a', '#b0b0c0'];
+  const points = [];
+
+  // Silver trunk — thick and tapering
+  let drift = 0;
+  for (let y = 0; y < trunkH; y++) {
+    drift += (rng.random() - 0.5) * 0.25;
+    const px = Math.round(cx + drift);
+    const py = soilY - 2 - y;
+    const progress = y / trunkH;
+    const thick = Math.max(2, Math.round(4 * (1 - progress * 0.5)));
+    for (let t = -Math.floor(thick / 2); t <= Math.floor(thick / 2); t++) {
+      const isEdge = Math.abs(t) === Math.floor(thick / 2);
+      setPixel(ctx, px + t, py, isEdge ? trunkColors[0] : trunkColors[1]);
+    }
+    points.push({ x: px, y: py });
+  }
+
+  // Major branches that spread wide like a real tree
+  if (growthStage > 0.25) {
+    const numBranches = Math.max(15, Math.floor(growthStage * 40));
+    for (let i = 0; i < numBranches; i++) {
+      const idx = rng.int(Math.floor(points.length * 0.3), points.length - 1);
+      const start = points[idx];
+      if (!start) continue;
+      const dir = (i % 2 === 0) ? -1 : 1;
+      const len = rng.int(6, Math.max(12, Math.floor(size * 0.3)));
+      let bx = start.x, by = start.y;
+      const upBias = rng.float(0.15, 0.35);
+      for (let b = 0; b < len; b++) {
+        bx += dir;
+        if (rng.chance(upBias)) by -= 1;
+        else if (rng.chance(0.15)) by += 1;
+        const thick = b < len * 0.3 ? 2 : 1;
+        for (let t = 0; t < thick; t++) {
+          setPixel(ctx, bx, by - t, trunkColors[b < 2 ? 1 : 2]);
+        }
+        points.push({ x: bx, y: by });
+
+        // Sub-branches for canopy spread
+        if (b > len * 0.4 && rng.chance(0.4)) {
+          const subDir = rng.chance(0.6) ? dir : -dir;
+          let sx = bx, sy = by;
+          const subLen = rng.int(3, 6);
+          for (let s = 0; s < subLen; s++) {
+            sx += subDir;
+            if (rng.chance(0.3)) sy -= 1;
+            else if (rng.chance(0.2)) sy += 1;
+            setPixel(ctx, sx, sy, trunkColors[2]);
+            points.push({ x: sx, y: sy });
+          }
+        }
+      }
+    }
+  }
+
+  // Star-petal blossoms — dense canopy coverage
+  if (growthStage > 0.7) {
+    const bloom = Math.min(1, (growthStage - 0.7) / 0.25);
+    const numBlossoms = Math.max(10, Math.floor(bloom * 50));
+    const topPts = [...points].sort((a, b) => a.y - b.y).slice(0, 80);
+    const petalColors = ['#c0c0d0', '#d0d0e0', '#e8e8f0', '#ffffff'];
+
+    for (let i = 0; i < numBlossoms; i++) {
+      const pt = rng.pick(topPts);
+      const r = rng.int(2, 3);
+      for (let d = 0; d < r; d++) {
+        const c = petalColors[Math.min(d, 3)];
+        setPixel(ctx, pt.x + d, pt.y, c);
+        setPixel(ctx, pt.x - d, pt.y, c);
+        setPixel(ctx, pt.x, pt.y + d, c);
+        setPixel(ctx, pt.x, pt.y - d, c);
+      }
+      setPixel(ctx, pt.x, pt.y, '#fffbe6');
+    }
+  }
+
+  return points;
+}
+
+// ── Celestia Bloom — radiant white flower with halo center ──
+
+function drawCelestiaBloom(ctx, cx, soilY, height, palette, rng, growthStage, size) {
+  const stemProgress = Math.min(1, growthStage / 0.7);
+  const trunkH = Math.max(3, Math.floor(height * stemProgress));
+  const points = [];
+
+  // Pale silvery-green trunk
+  const trunkColors = ['#4a6a5a', '#6a9a7a', '#8abfa0', '#b0dac0'];
+  let drift = 0;
+  for (let y = 0; y < trunkH; y++) {
+    drift += (rng.random() - 0.5) * 0.2;
+    const px = Math.round(cx + drift);
+    const py = soilY - 2 - y;
+    const progress = y / trunkH;
+    const thick = Math.max(2, Math.round(3 * (1 - progress * 0.4)));
+    for (let t = -Math.floor(thick / 2); t <= Math.floor(thick / 2); t++) {
+      const isEdge = Math.abs(t) === Math.floor(thick / 2);
+      setPixel(ctx, px + t, py, isEdge ? trunkColors[0] : trunkColors[1]);
+    }
+    // Pale glow streak
+    if (y % 4 === 0) setPixel(ctx, px, py, trunkColors[3]);
+    points.push({ x: px, y: py });
+  }
+
+  // Spreading branches that arc gracefully outward
+  if (growthStage > 0.25) {
+    const numBranches = Math.max(15, Math.floor(growthStage * 35));
+    for (let i = 0; i < numBranches; i++) {
+      const idx = rng.int(Math.floor(points.length * 0.3), points.length - 1);
+      const start = points[idx];
+      if (!start) continue;
+      const dir = (i % 2 === 0) ? -1 : 1;
+      const len = rng.int(6, Math.max(12, Math.floor(size * 0.28)));
+      let bx = start.x, by = start.y;
+      for (let b = 0; b < len; b++) {
+        bx += dir;
+        if (rng.chance(0.25)) by -= 1;
+        else if (rng.chance(0.15)) by += 1;
+        setPixel(ctx, bx, by, trunkColors[b < 2 ? 1 : 2]);
+        points.push({ x: bx, y: by });
+
+        // Smaller sub-branches
+        if (b > len * 0.4 && rng.chance(0.35)) {
+          let sx = bx, sy = by;
+          const subLen = rng.int(3, 5);
+          for (let s = 0; s < subLen; s++) {
+            sx += rng.chance(0.5) ? dir : -dir;
+            if (rng.chance(0.3)) sy -= 1;
+            else if (rng.chance(0.2)) sy += 1;
+            setPixel(ctx, sx, sy, trunkColors[2]);
+            points.push({ x: sx, y: sy });
+          }
+        }
+      }
+    }
+  }
+
+  // Translucent layered petals at branch tips
+  if (growthStage > 0.7) {
+    const bloom = Math.min(1, (growthStage - 0.7) / 0.25);
+    const tipPts = [...points].sort((a, b) => a.y - b.y).slice(0, 50);
+    const petalColors = ['#e0e0f0', '#e8e8ff', '#f0f0ff', '#ffffff'];
+    const numBlooms = Math.max(10, Math.floor(bloom * 30));
+    const placed = [];
+
+    for (let i = 0; i < numBlooms; i++) {
+      let best = null;
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const pt = rng.pick(tipPts);
+        const tooClose = placed.some(p => Math.abs(p.x - pt.x) + Math.abs(p.y - pt.y) < 3);
+        if (!tooClose) { best = pt; break; }
+        if (!best) best = pt;
+      }
+      if (!best) continue;
+      placed.push(best);
+
+      const numPetals = 8;
+      const petalLen = Math.max(2, Math.floor(size * 0.08 * bloom));
+      for (let p = 0; p < numPetals; p++) {
+        const angle = (p * Math.PI * 2) / numPetals;
+        for (let r = 1; r < petalLen; r++) {
+          const px = Math.round(best.x + Math.cos(angle) * r);
+          const py = Math.round(best.y + Math.sin(angle) * r * 0.7);
+          const ci = Math.min(3, Math.floor(r / petalLen * 4));
+          setPixel(ctx, px, py, petalColors[ci]);
+        }
+      }
+      // Halo center
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (Math.abs(dx) + Math.abs(dy) <= 1) setPixel(ctx, best.x + dx, best.y + dy, '#fffbe6');
+        }
+      }
+      setPixel(ctx, best.x, best.y, '#ffffff');
+    }
+
+    // Light ray shimmer
+    if (bloom > 0.5) {
+      const rayColors = ['#fffbe6', '#fff5cc'];
+      for (let r = 0; r < 25; r++) {
+        const angle = rng.float(0, Math.PI * 2);
+        const dist = rng.int(4, Math.floor(size * 0.25));
+        const rx = Math.round(cx + Math.cos(angle) * dist);
+        const ry = Math.round((soilY - trunkH) + Math.sin(angle) * dist);
+        setPixel(ctx, rx, ry, rng.pick(rayColors));
+      }
+    }
+  }
+
+  return points;
+}
+
+// ── Dragonroot Arbor — massive twisted trunk with scaled fronds ──
+
+function drawDragonrootArbor(ctx, cx, soilY, height, palette, rng, growthStage, size) {
+  const stemProgress = Math.min(1, growthStage / 0.7);
+  const trunkH = Math.max(3, Math.floor(height * stemProgress));
+  const trunkColors = ['#3a2a1a', '#5a4030', '#6a5040', '#8a7060'];
+  const scaleColors = ['#2a4a2a', '#3a6a3a', '#4a8a4a', '#5aaa5a'];
+  const points = [];
+
+  // Thick twisted trunk — wider base
+  let drift = 0;
+  for (let y = 0; y < trunkH; y++) {
+    const t = y / trunkH;
+    drift += Math.sin(y * 0.3) * 0.5;
+    const px = Math.round(cx + drift);
+    const py = soilY - 2 - y;
+    const thick = Math.max(2, Math.round(5 * (1 - t * 0.45)));
+
+    for (let dx = -Math.floor(thick / 2); dx <= Math.floor(thick / 2); dx++) {
+      const isEdge = Math.abs(dx) === Math.floor(thick / 2);
+      const isScale = (y + dx) % 3 === 0;
+      let c = isEdge ? trunkColors[0] : trunkColors[1];
+      if (isScale && !isEdge) c = trunkColors[2];
+      setPixel(ctx, px + dx, py, c);
+    }
+    points.push({ x: px, y: py });
+  }
+
+  // Heavy branches that spread wide — tree canopy shape
+  if (growthStage > 0.2) {
+    const numBranches = Math.max(15, Math.floor(growthStage * 40));
+    for (let i = 0; i < numBranches; i++) {
+      const idx = rng.int(Math.floor(points.length * 0.3), points.length - 1);
+      const start = points[idx];
+      if (!start) continue;
+      const dir = (i % 2 === 0) ? -1 : 1;
+      const len = rng.int(6, Math.max(12, Math.floor(size * 0.28)));
+      let bx = start.x, by = start.y;
+      const upBias = rng.float(0.1, 0.3);
+      for (let b = 0; b < len; b++) {
+        bx += dir;
+        if (rng.chance(upBias)) by -= 1;
+        else if (rng.chance(0.2)) by += 1;
+        const thick = b < len * 0.3 ? 2 : 1;
+        for (let t = 0; t < thick; t++) {
+          const isScale = (b + t) % 3 === 0;
+          setPixel(ctx, bx, by - t, isScale ? trunkColors[2] : trunkColors[1]);
+        }
+        points.push({ x: bx, y: by });
+
+        // Sub-branches with fronds
+        if (b > len * 0.4 && rng.chance(0.3)) {
+          const subDir = rng.chance(0.7) ? dir : -dir;
+          let sx = bx, sy = by;
+          const subLen = rng.int(3, 6);
+          for (let s = 0; s < subLen; s++) {
+            sx += subDir;
+            if (rng.chance(0.25)) sy -= 1;
+            else if (rng.chance(0.2)) sy += 1;
+            setPixel(ctx, sx, sy, trunkColors[2]);
+            points.push({ x: sx, y: sy });
+          }
+        }
+      }
+    }
+  }
+
+  // Scaled frond leaves at branch tips
+  if (growthStage > 0.35) {
+    const tipPts = [...points].sort((a, b) => a.y - b.y).slice(0, Math.floor(points.length * 0.3));
+    const numFronds = Math.max(10, Math.floor(growthStage * 40));
+    for (let i = 0; i < numFronds; i++) {
+      const start = rng.pick(tipPts);
+      if (!start) continue;
+      const dir = rng.chance(0.5) ? -1 : 1;
+      const len = rng.int(3, 6);
+      for (let f = 0; f < len; f++) {
+        const fx = start.x + dir * f;
+        const fy = start.y - Math.floor(f * 0.3);
+        setPixel(ctx, fx, fy, scaleColors[1]);
+        if (f % 2 === 0) {
+          setPixel(ctx, fx, fy - 1, scaleColors[2]);
+          setPixel(ctx, fx, fy + 1, scaleColors[0]);
+        }
+        points.push({ x: fx, y: fy });
+      }
+    }
+  }
+
+  // Glowing mist from bark knots
+  if (growthStage > 0.7) {
+    const numMist = Math.floor((growthStage - 0.7) * 75);
+    const mistColors = ['#5aaa5a', '#80cc80', '#a0e0a0'];
+    for (let i = 0; i < numMist; i++) {
+      const pt = rng.pick(points);
+      const mx = pt.x + rng.int(-2, 2);
+      const my = pt.y + rng.int(-2, 0);
+      setPixel(ctx, mx, my, rng.pick(mistColors));
+    }
+  }
+
+  return points;
+}
+
+// ── Prismheart Tree — crystal tree variant with RGB cycling ──
+
+function drawPrismheartTree(ctx, cx, soilY, height, rng, growthStage, size, frameOffset) {
+  const stemProgress = Math.min(1, growthStage / 0.7);
+  const trunkH = Math.max(3, Math.floor(height * stemProgress));
+  const baseHue = (frameOffset * 3) % 360;
+  const trunkColors = [
+    hsl(baseHue, 20, 30),
+    hsl(baseHue, 25, 45),
+    hsl(baseHue, 15, 60),
+    hsl(baseHue, 10, 75),
+  ];
+  const points = [];
+
+  // Prismatic trunk — thicker base
+  let drift = 0;
+  for (let y = 0; y < trunkH; y++) {
+    drift += (rng.random() - 0.5) * 0.25;
+    const px = Math.round(cx + drift);
+    const py = soilY - 2 - y;
+    const progress = y / trunkH;
+    const thick = Math.max(2, Math.round(4 * (1 - progress * 0.45)));
+
+    for (let t = -Math.floor(thick / 2); t <= Math.floor(thick / 2); t++) {
+      const isEdge = Math.abs(t) === Math.floor(thick / 2);
+      setPixel(ctx, px + t, py, isEdge ? trunkColors[0] : trunkColors[1]);
+    }
+    if (y % 3 === 0) setPixel(ctx, px, py, trunkColors[3]);
+    points.push({ x: px, y: py });
+  }
+
+  // Wide spreading crystal branches
+  if (growthStage > 0.25) {
+    const numBranches = Math.max(15, Math.floor(growthStage * 40));
+    for (let i = 0; i < numBranches; i++) {
+      const idx = rng.int(Math.floor(points.length * 0.3), points.length - 1);
+      const start = points[idx];
+      if (!start) continue;
+      const dir = (i % 2 === 0) ? -1 : 1;
+      const len = rng.int(6, Math.max(12, Math.floor(size * 0.25)));
+      const branchHue = (baseHue + rng.int(30, 120)) % 360;
+      const branchColors = [
+        hsl(branchHue, 30, 35),
+        hsl(branchHue, 40, 50),
+        hsl(branchHue, 50, 65),
+      ];
+      let bx = start.x, by = start.y;
+      for (let b = 0; b < len; b++) {
+        bx += dir;
+        if (rng.chance(0.2)) by -= 1;
+        else if (rng.chance(0.15)) by += 1;
+        const thick = b < len * 0.3 ? 2 : 1;
+        for (let t = 0; t < thick; t++) {
+          setPixel(ctx, bx, by - t, branchColors[b < 2 ? 0 : 1]);
+        }
+        points.push({ x: bx, y: by });
+
+        // Crystal shard sub-branches
+        if (b > len * 0.4 && rng.chance(0.35)) {
+          const subDir = rng.chance(0.6) ? dir : -dir;
+          let sx = bx, sy = by;
+          const shardHue = (baseHue + rng.int(60, 240)) % 360;
+          const subLen = rng.int(3, 5);
+          for (let s = 0; s < subLen; s++) {
+            sx += subDir;
+            if (rng.chance(0.25)) sy -= 1;
+            else if (rng.chance(0.2)) sy += 1;
+            setPixel(ctx, sx, sy, hsl(shardHue, 50, 60));
+            if (s === subLen - 1) setPixel(ctx, sx, sy, hsl(shardHue, 60, 80));
+            points.push({ x: sx, y: sy });
+          }
+        }
+      }
+    }
+  }
+
+  // Floating prism fragments at maturity
+  if (growthStage >= 0.9) {
+    const numFrags = 30;
+    for (let i = 0; i < numFrags; i++) {
+      const fragHue = (baseHue + i * 12) % 360;
+      const fx = cx + rng.int(-Math.floor(size * 0.35), Math.floor(size * 0.35));
+      const fy = rng.int(4, Math.floor(soilY * 0.6));
+      setPixel(ctx, fx, fy, hsl(fragHue, 70, 70));
+      setPixel(ctx, fx + 1, fy, hsl(fragHue, 60, 80));
+      setPixel(ctx, fx, fy + 1, hsl(fragHue, 60, 80));
+    }
+  }
+
+  return points;
+}
+
+// ── Black Dahlia — override flower colors to deep crimson/black ──
+
+function drawBlackDahliaFlowers(ctx, points, rng, growthStage, complexity, size) {
+  if (growthStage < 0.7) return;
+  const bloom = Math.min(1, (growthStage - 0.7) / 0.25);
+  const petalColors = ['#1a0a0a', '#3a1018', '#5a1a28', '#2a0a10'];
+  const centerColor = '#800020';
+  const topPoints = [...points].sort((a, b) => a.y - b.y).slice(0, 8);
+  const numFlowers = Math.max(1, Math.floor(complexity * 0.6));
+
+  for (let i = 0; i < numFlowers; i++) {
+    const pt = rng.pick(topPoints);
+    const r = Math.max(2, Math.floor(3 * bloom));
+    // Layered circular petals
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist <= r) {
+          const ci = Math.min(3, Math.floor(dist));
+          setPixel(ctx, pt.x + dx, pt.y + dy, petalColors[ci]);
+        }
+      }
+    }
+    setPixel(ctx, pt.x, pt.y, centerColor);
+    setPixel(ctx, pt.x - 1, pt.y, centerColor);
+    setPixel(ctx, pt.x + 1, pt.y, centerColor);
+  }
+}
+
+// ── Blue Fire Poppy — electric blue with flicker ──
+
+function drawBlueFirePoppyFlowers(ctx, points, rng, growthStage, complexity, size, frameOffset) {
+  if (growthStage < 0.7) return;
+  const bloom = Math.min(1, (growthStage - 0.7) / 0.25);
+  const blueColors = ['#1a3a8a', '#2a5aba', '#4a8aee', '#7ab4ff', '#c0e0ff'];
+  const topPoints = [...points].sort((a, b) => a.y - b.y).slice(0, 8);
+  const numFlowers = Math.max(1, Math.floor(complexity * 0.5));
+
+  for (let i = 0; i < numFlowers; i++) {
+    const pt = rng.pick(topPoints);
+    const r = Math.max(2, Math.floor(3 * bloom));
+    const numPetals = 5;
+    for (let p = 0; p < numPetals; p++) {
+      const angle = (p * Math.PI * 2) / numPetals + ((frameOffset || 0) * 0.05);
+      for (let d = 1; d <= r; d++) {
+        const px = Math.round(pt.x + Math.cos(angle) * d);
+        const py = Math.round(pt.y + Math.sin(angle) * d * 0.7);
+        const ci = Math.min(4, d);
+        setPixel(ctx, px, py, blueColors[ci]);
+      }
+    }
+    // Bright center
+    setPixel(ctx, pt.x, pt.y, '#ffffff');
+    // Flicker spark
+    if (rng.chance(0.5)) {
+      const fx = pt.x + rng.int(-2, 2);
+      const fy = pt.y + rng.int(-2, 2);
+      setPixel(ctx, fx, fy, '#c0e0ff');
+    }
+  }
+}
+
 export function renderPlant(plant, growthStage, frameOffset = 0) {
   let canvas;
 
@@ -1034,7 +1945,7 @@ function renderPlantBody(plant, growthStage, frameOffset) {
   clearCanvas(ctx, size, size);
 
   // Always draw pot
-  const { soilY, cx } = drawPot(ctx, size, palette, rng);
+  const { soilY, cx } = drawPot(ctx, size, palette, rng, plant.potElement);
 
   if (growthStage < 0.05) {
     return canvas;
@@ -1045,14 +1956,19 @@ function renderPlantBody(plant, growthStage, frameOffset) {
   const stemProgress = Math.min(1, growthStage / 0.7);
   const stemHeight = Math.max(3, Math.floor(maxStemHeight * stemProgress));
 
-  // ── Succulent ──
-  if (species === 'Succulent') {
-    drawSucculent(ctx, cx, soilY, stemHeight, palette, rng, growthStage, size);
+  // Helper: completion sparkles
+  function finishWithSparkles() {
     if (growthStage >= 1.0) {
       const sparkRng = createRng(plant.seed + 999);
       drawSparkles(ctx, size, sparkRng, frameOffset);
     }
     return canvas;
+  }
+
+  // ── Succulent ──
+  if (species === 'Succulent') {
+    drawSucculent(ctx, cx, soilY, stemHeight, palette, rng, growthStage, size);
+    return finishWithSparkles();
   }
 
   // ── Cactus Rose ──
@@ -1061,32 +1977,79 @@ function renderPlantBody(plant, growthStage, frameOffset) {
     if (growthStage > 0.7 && plant.hasFlowers) {
       drawFlowers(ctx, cactusPoints, palette, rng, growthStage, complexity, size);
     }
-    if (growthStage >= 1.0) {
-      const sparkRng = createRng(plant.seed + 999);
-      drawSparkles(ctx, size, sparkRng, frameOffset);
-    }
-    return canvas;
+    return finishWithSparkles();
   }
 
-  // ── Crystal Tree — fully custom rendering ──
+  // ── Crystal Tree ──
   if (species === 'Crystal Tree') {
     const { points: crystalStemPts, trunkHue } = drawCrystalTrunk(ctx, cx, soilY, stemHeight, rng, size);
     let crystalPts = [...crystalStemPts];
-
     if (growthStage > 0.25) {
       const branchPts = drawCrystalBranches(ctx, crystalStemPts, rng, size, trunkHue);
       crystalPts = [...crystalPts, ...branchPts];
     }
-
     if (growthStage > 0.3) {
       drawCrystalShards(ctx, crystalPts, palette, rng, growthStage, size);
     }
+    return finishWithSparkles();
+  }
 
-    if (growthStage >= 1.0) {
-      const sparkRng = createRng(plant.seed + 999);
-      drawSparkles(ctx, size, sparkRng, frameOffset);
+  // ── Clover Patch ──
+  if (species === 'Clover Patch') {
+    drawCloverPatch(ctx, cx, soilY, palette, rng, growthStage, size);
+    return finishWithSparkles();
+  }
+
+  // ── Pitcher Plant ──
+  if (species === 'Pitcher Plant') {
+    drawPitcherPlant(ctx, cx, soilY, stemHeight, palette, rng, growthStage, size);
+    return finishWithSparkles();
+  }
+
+  // ── Marigold ──
+  if (species === 'Marigold') {
+    drawMarigold(ctx, cx, soilY, stemHeight, palette, rng, growthStage, size);
+    return finishWithSparkles();
+  }
+
+  // ── Lavender ──
+  if (species === 'Lavender') {
+    drawLavender(ctx, cx, soilY, stemHeight, palette, rng, growthStage, size);
+    return finishWithSparkles();
+  }
+
+  // ── Stormvine ──
+  if (species === 'Stormvine') {
+    const stormPts = drawStormvine(ctx, cx, soilY, stemHeight, palette, rng, growthStage, size);
+    if (growthStage > 0.15) {
+      const leafGrowth = Math.min(1, (growthStage - 0.15) / 0.55);
+      drawLeaves(ctx, stormPts, palette, rng, plant.leafType || 'fern', leafGrowth, complexity, size);
     }
-    return canvas;
+    return finishWithSparkles();
+  }
+
+  // ── Starfall Magnolia ──
+  if (species === 'Starfall Magnolia') {
+    drawStarfallMagnolia(ctx, cx, soilY, stemHeight, rng, growthStage, size);
+    return finishWithSparkles();
+  }
+
+  // ── Celestia Bloom ──
+  if (species === 'Celestia Bloom') {
+    drawCelestiaBloom(ctx, cx, soilY, stemHeight, palette, rng, growthStage, size);
+    return finishWithSparkles();
+  }
+
+  // ── Dragonroot Arbor ──
+  if (species === 'Dragonroot Arbor') {
+    drawDragonrootArbor(ctx, cx, soilY, stemHeight, palette, rng, growthStage, size);
+    return finishWithSparkles();
+  }
+
+  // ── Prismheart Tree ──
+  if (species === 'Prismheart Tree') {
+    drawPrismheartTree(ctx, cx, soilY, stemHeight, rng, growthStage, size, frameOffset);
+    return finishWithSparkles();
   }
 
   // ── Standard stem-based plants ──
@@ -1110,22 +2073,25 @@ function renderPlantBody(plant, growthStage, frameOffset) {
     drawLeaves(ctx, allPoints, palette, rng, plant.leafType || 'round', leafGrowth, complexity, size);
   }
 
-  // Moon Lily special flowers
+  // Species-specific flowers
   if (species === 'Moon Lily' && growthStage > 0.7) {
     drawMoonLilyPetals(ctx, allPoints, palette, rng, growthStage, size);
-  }
-  // Standard flowers
-  else if (growthStage > 0.7 && plant.hasFlowers) {
+  } else if (species === 'Golden Lotus' && growthStage > 0.7) {
+    drawGoldenLotusPetals(ctx, allPoints, rng, growthStage, size);
+  } else if (species === 'Black Dahlia') {
+    drawBlackDahliaFlowers(ctx, allPoints, rng, growthStage, complexity, size);
+  } else if (species === 'Blue Fire Poppy') {
+    drawBlueFirePoppyFlowers(ctx, allPoints, rng, growthStage, complexity, size, frameOffset);
+  } else if (species === 'Glowing Nightshade') {
+    drawNightshadeBerries(ctx, allPoints, rng, growthStage, size);
+  } else if (species === 'Emberthorn Blossom') {
+    drawEmberthornCore(ctx, allPoints, rng, growthStage, size);
+  } else if (growthStage > 0.7 && plant.hasFlowers) {
+    // Standard flowers for Marigold, Lavender, Snapdragon, etc.
     drawFlowers(ctx, allPoints, palette, rng, growthStage, complexity, size);
   }
 
-  // Completion sparkle
-  if (growthStage >= 1.0) {
-    const sparkRng = createRng(plant.seed + 999);
-    drawSparkles(ctx, size, sparkRng, frameOffset);
-  }
-
-  return canvas;
+  return finishWithSparkles();
 }
 
 // Render at display scale

@@ -21,12 +21,12 @@ export const UNIQUE_COLOR = '#c0c8d4';
 export const RARITY_ORDER = [RARITY.COMMON, RARITY.UNCOMMON, RARITY.RARE, RARITY.EPIC, RARITY.LEGENDARY];
 
 export const SPECIES = [
-  // Common — 3-7 days, complexity 2
+  // ── Common — 2-4 days, complexity 2 ──
   {
     name: 'Daisy',
     rarity: RARITY.COMMON,
-    minDays: 4,
-    maxDays: 6,
+    minDays: 2,
+    maxDays: 3,
     complexity: 2,
     weight: 30,
     hasFlowers: true,
@@ -35,20 +35,50 @@ export const SPECIES = [
   {
     name: 'Tulip',
     rarity: RARITY.COMMON,
-    minDays: 5,
-    maxDays: 7,
+    minDays: 3,
+    maxDays: 4,
     complexity: 2,
     weight: 28,
     hasFlowers: true,
     leafType: 'pointed',
   },
+  {
+    name: 'Marigold',
+    rarity: RARITY.COMMON,
+    minDays: 2,
+    maxDays: 3,
+    complexity: 2,
+    weight: 26,
+    hasFlowers: true,
+    leafType: 'round',
+  },
+  {
+    name: 'Lavender',
+    rarity: RARITY.COMMON,
+    minDays: 2,
+    maxDays: 4,
+    complexity: 2,
+    weight: 24,
+    hasFlowers: true,
+    leafType: 'pointed',
+  },
+  {
+    name: 'Clover Patch',
+    rarity: RARITY.COMMON,
+    minDays: 2,
+    maxDays: 3,
+    complexity: 2,
+    weight: 22,
+    hasFlowers: false,
+    leafType: 'clover',
+  },
 
-  // Uncommon — 7-14 days, complexity 3
+  // ── Uncommon — 4-7 days, complexity 3 ──
   {
     name: 'Fern',
     rarity: RARITY.UNCOMMON,
-    minDays: 7,
-    maxDays: 12,
+    minDays: 4,
+    maxDays: 6,
     complexity: 3,
     weight: 12,
     hasFlowers: false,
@@ -57,8 +87,8 @@ export const SPECIES = [
   {
     name: 'Succulent',
     rarity: RARITY.UNCOMMON,
-    minDays: 8,
-    maxDays: 14,
+    minDays: 4,
+    maxDays: 7,
     complexity: 3,
     weight: 10,
     hasFlowers: false,
@@ -67,20 +97,40 @@ export const SPECIES = [
   {
     name: 'Violet',
     rarity: RARITY.UNCOMMON,
-    minDays: 7,
-    maxDays: 11,
+    minDays: 4,
+    maxDays: 6,
     complexity: 3,
     weight: 11,
     hasFlowers: true,
     leafType: 'round',
   },
+  {
+    name: 'Snapdragon',
+    rarity: RARITY.UNCOMMON,
+    minDays: 5,
+    maxDays: 7,
+    complexity: 3,
+    weight: 9,
+    hasFlowers: true,
+    leafType: 'pointed',
+  },
+  {
+    name: 'Pitcher Plant',
+    rarity: RARITY.UNCOMMON,
+    minDays: 5,
+    maxDays: 7,
+    complexity: 3,
+    weight: 8,
+    hasFlowers: false,
+    leafType: 'long',
+  },
 
-  // Rare — 14-28 days, complexity 4
+  // ── Rare — 7-14 days, complexity 4 ──
   {
     name: 'Bonsai',
     rarity: RARITY.RARE,
-    minDays: 18,
-    maxDays: 28,
+    minDays: 9,
+    maxDays: 14,
     complexity: 4,
     weight: 5,
     hasFlowers: false,
@@ -89,20 +139,50 @@ export const SPECIES = [
   {
     name: 'Orchid',
     rarity: RARITY.RARE,
-    minDays: 14,
-    maxDays: 24,
+    minDays: 7,
+    maxDays: 12,
     complexity: 4,
     weight: 4,
     hasFlowers: true,
     leafType: 'long',
   },
+  {
+    name: 'Black Dahlia',
+    rarity: RARITY.RARE,
+    minDays: 8,
+    maxDays: 13,
+    complexity: 4,
+    weight: 4,
+    hasFlowers: true,
+    leafType: 'pointed',
+  },
+  {
+    name: 'Glowing Nightshade',
+    rarity: RARITY.RARE,
+    minDays: 9,
+    maxDays: 14,
+    complexity: 4,
+    weight: 3,
+    hasFlowers: false,
+    leafType: 'pointed',
+  },
+  {
+    name: 'Blue Fire Poppy',
+    rarity: RARITY.RARE,
+    minDays: 7,
+    maxDays: 12,
+    complexity: 4,
+    weight: 3,
+    hasFlowers: true,
+    leafType: 'round',
+  },
 
-  // Epic — 28-50 days, complexity 5
+  // ── Epic — 14-25 days, complexity 5 ──
   {
     name: 'Cactus Rose',
     rarity: RARITY.EPIC,
-    minDays: 28,
-    maxDays: 42,
+    minDays: 14,
+    maxDays: 21,
     complexity: 5,
     weight: 2,
     hasFlowers: true,
@@ -111,22 +191,92 @@ export const SPECIES = [
   {
     name: 'Moon Lily',
     rarity: RARITY.EPIC,
-    minDays: 35,
-    maxDays: 50,
+    minDays: 18,
+    maxDays: 25,
     complexity: 5,
     weight: 1.5,
     hasFlowers: true,
     leafType: 'long',
   },
+  {
+    name: 'Stormvine',
+    rarity: RARITY.EPIC,
+    minDays: 16,
+    maxDays: 23,
+    complexity: 5,
+    weight: 1.5,
+    hasFlowers: false,
+    leafType: 'fern',
+  },
+  {
+    name: 'Golden Lotus',
+    rarity: RARITY.EPIC,
+    minDays: 15,
+    maxDays: 22,
+    complexity: 5,
+    weight: 1.5,
+    hasFlowers: true,
+    leafType: 'round',
+  },
+  {
+    name: 'Emberthorn Blossom',
+    rarity: RARITY.EPIC,
+    minDays: 17,
+    maxDays: 24,
+    complexity: 5,
+    weight: 1.5,
+    hasFlowers: true,
+    leafType: 'pointed',
+  },
 
-  // Legendary — 50-90 days, complexity 5
+  // ── Legendary — 25-45 days, complexity 5 ──
   {
     name: 'Crystal Tree',
     rarity: RARITY.LEGENDARY,
-    minDays: 50,
-    maxDays: 90,
+    minDays: 25,
+    maxDays: 45,
     complexity: 5,
     weight: 0.5,
+    hasFlowers: true,
+    leafType: 'tiny',
+  },
+  {
+    name: 'Starfall Magnolia',
+    rarity: RARITY.LEGENDARY,
+    minDays: 30,
+    maxDays: 45,
+    complexity: 5,
+    weight: 0.4,
+    hasFlowers: true,
+    leafType: 'round',
+  },
+  {
+    name: 'Celestia Bloom',
+    rarity: RARITY.LEGENDARY,
+    minDays: 28,
+    maxDays: 42,
+    complexity: 5,
+    weight: 0.4,
+    hasFlowers: true,
+    leafType: 'round',
+  },
+  {
+    name: 'Dragonroot Arbor',
+    rarity: RARITY.LEGENDARY,
+    minDays: 32,
+    maxDays: 45,
+    complexity: 5,
+    weight: 0.3,
+    hasFlowers: false,
+    leafType: 'fern',
+  },
+  {
+    name: 'Prismheart Tree',
+    rarity: RARITY.LEGENDARY,
+    minDays: 30,
+    maxDays: 45,
+    complexity: 5,
+    weight: 0.4,
     hasFlowers: true,
     leafType: 'tiny',
   },
@@ -142,15 +292,24 @@ export function getCanvasSize(rarity) {
     case RARITY.EPIC:
       return 48;
     case RARITY.LEGENDARY:
-      return 64;
+      return 96;
     default:
       return 32;
   }
 }
 
-// Pick a species using weighted random
+// Pick a wild species — only Common and Uncommon appear in the wild
 export function pickSpecies(rng) {
-  const items = SPECIES.map((s) => ({ value: s, weight: s.weight }));
+  const wildSpecies = SPECIES.filter(s => s.rarity === RARITY.COMMON || s.rarity === RARITY.UNCOMMON);
+  const items = wildSpecies.map((s) => ({ value: s, weight: s.weight }));
+  return rng.weighted(items);
+}
+
+// Pick a species from a specific rarity tier
+export function pickSpeciesByRarity(rng, rarity) {
+  const tierSpecies = SPECIES.filter(s => s.rarity === rarity);
+  if (tierSpecies.length === 0) return null;
+  const items = tierSpecies.map((s) => ({ value: s, weight: s.weight }));
   return rng.weighted(items);
 }
 
@@ -200,6 +359,13 @@ export const LEAF_TEMPLATES = {
     [-1, -1], [0, -1], [1, -1],
     [-1, 0], [0, 0], [1, 0],
     [0, 1],
+  ],
+  clover: [
+    // 3-leaf clover shape
+    [0, -2], [-1, -1], [1, -1],
+    [-2, 0], [-1, 0], [1, 0], [2, 0],
+    [-1, 1], [1, 1],
+    [0, 2],
   ],
 };
 

@@ -151,7 +151,7 @@ export function renderSpeciesGallery(container) {
 
       const isCompleted = completed.has(species.name);
       const plant = buildExamplePlant(species);
-      const scale = rarity === RARITY.LEGENDARY ? 4 :
+      const scale = rarity === RARITY.LEGENDARY ? 3 :
                     rarity === RARITY.RARE || rarity === RARITY.EPIC ? 4 : 5;
 
       const canvasWrap = document.createElement('div');

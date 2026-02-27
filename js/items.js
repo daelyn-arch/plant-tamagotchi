@@ -1,7 +1,25 @@
 // Item definitions, drop logic, and item utility functions
 
-import { RARITY } from './plant-data.js';
+import { RARITY, SPECIES } from './plant-data.js';
 import { WATERING_BONUS_VALUES, DAY_BONUS_VALUES } from './growth.js';
+
+// Seed rarity → plant rarity tier mapping
+export const SEED_TIER_MAP = {
+  [RARITY.COMMON]: RARITY.RARE,
+  [RARITY.UNCOMMON]: RARITY.RARE,
+  [RARITY.RARE]: RARITY.EPIC,
+  [RARITY.EPIC]: RARITY.EPIC,
+  [RARITY.LEGENDARY]: RARITY.LEGENDARY,
+};
+
+// Seed drop weights when a Common/Uncommon plant is completed
+export const SEED_DROP_WEIGHTS = {
+  [RARITY.COMMON]: 50,
+  [RARITY.UNCOMMON]: 25,
+  [RARITY.RARE]: 12,
+  [RARITY.EPIC]: 6,
+  [RARITY.LEGENDARY]: 1,
+};
 
 // Duration scaling: how many plants a consumable lasts based on item rarity
 const DURATION_BY_RARITY = {
@@ -23,6 +41,15 @@ const COMBINE_RARITY_GATE = {
 
 export const RARITY_ORDER = [RARITY.COMMON, RARITY.UNCOMMON, RARITY.RARE, RARITY.EPIC, RARITY.LEGENDARY];
 
+// Fertile Soil upgrade percentage by rarity
+const UPGRADE_PCT_BY_RARITY = {
+  [RARITY.COMMON]: 5,
+  [RARITY.UNCOMMON]: 10,
+  [RARITY.RARE]: 15,
+  [RARITY.EPIC]: 25,
+  [RARITY.LEGENDARY]: 50,
+};
+
 function rarityIndex(r) {
   return RARITY_ORDER.indexOf(r);
 }
@@ -42,10 +69,10 @@ export const ITEM_TYPES = {
   day_boost: {
     name: 'Sun Stone',
     icon: '*',
-    description: 'Boosts daily growth bonus for your current plant.',
+    description: 'Boosts consecutive day bonus for your current plant.',
     getDescription(rarity) {
       const dur = DURATION_BY_RARITY[rarity];
-      return `+2 day bonus for ${dur} plant${dur > 1 ? 's' : ''}`;
+      return `+2 consecutive day bonus for ${dur} plant${dur > 1 ? 's' : ''}`;
     },
     value: 2,
   },
@@ -70,11 +97,12 @@ export const ITEM_TYPES = {
   garden_upgrade: {
     name: 'Fertile Soil',
     icon: '+',
-    description: 'Permanently increases a garden plant\'s bonus contribution by 50%.',
-    getDescription() {
-      return 'Upgrade a garden plant: +50% bonus contribution (permanent).';
+    description: 'Permanently increases a garden plant\'s bonus contribution.',
+    getDescription(rarity) {
+      const pct = UPGRADE_PCT_BY_RARITY[rarity] || 5;
+      return `Upgrade a garden plant: +${pct}% bonus contribution (permanent).`;
     },
-    value: 1.5,
+    value: 1.5, // overridden per-rarity in createItem
   },
   plant_combine: {
     name: 'Fusion Seed',
@@ -94,12 +122,65 @@ export const ITEM_TYPES = {
     },
     value: 1,
   },
+  seed: {
+    name: 'Plant Seed',
+    icon: 'o',
+    description: 'A seed that grows into a special plant.',
+    getDescription(rarity) {
+      const targetTier = SEED_TIER_MAP[rarity];
+      const tierSpecies = SPECIES.filter(s => s.rarity === targetTier);
+      const minDays = Math.min(...tierSpecies.map(s => s.minDays));
+      const maxDays = Math.max(...tierSpecies.map(s => s.maxDays));
+      return `Plant to grow a ${targetTier} plant (${minDays}\u2013${maxDays} days)`;
+    },
+    value: 1,
+  },
+  pot_fire: {
+    name: 'Ember Crown',
+    icon: '^',
+    description: 'Transforms a plant\'s pot into a blazing ember pot. Grants Runner immunity to fire obstacles.',
+    getDescription() {
+      return 'Elemental pot: fire theme + Runner fire immunity.';
+    },
+    value: 1,
+  },
+  pot_ice: {
+    name: 'Frost Shard',
+    icon: '\u2746',
+    description: 'Transforms a plant\'s pot into a frozen crystal pot. Grants Runner immunity to ice obstacles.',
+    getDescription() {
+      return 'Elemental pot: ice theme + Runner ice immunity.';
+    },
+    value: 1,
+  },
+  pot_earth: {
+    name: 'Stone Heart',
+    icon: '\u25A0',
+    description: 'Transforms a plant\'s pot into a rugged stone pot. Grants Runner immunity to rock obstacles.',
+    getDescription() {
+      return 'Elemental pot: earth theme + Runner rock immunity.';
+    },
+    value: 1,
+  },
+  pot_wind: {
+    name: 'Gale Feather',
+    icon: '\u2248',
+    description: 'Transforms a plant\'s pot into an airy breeze pot. Grants Runner immunity to tornado obstacles.',
+    getDescription() {
+      return 'Elemental pot: wind theme + Runner tornado immunity.';
+    },
+    value: 1,
+  },
 };
 
 // Create an item instance
 export function createItem(type, rarity) {
   const def = ITEM_TYPES[type];
   if (!def) return null;
+
+  const value = type === 'garden_upgrade'
+    ? 1 + (UPGRADE_PCT_BY_RARITY[rarity] || 5) / 100
+    : def.value;
 
   return {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
@@ -108,9 +189,10 @@ export function createItem(type, rarity) {
     icon: def.icon,
     rarity,
     description: def.getDescription ? def.getDescription(rarity) : def.description,
-    value: def.value,
+    value,
     duration: DURATION_BY_RARITY[rarity],
     combineGate: type === 'plant_combine' ? COMBINE_RARITY_GATE[rarity] : undefined,
+    seedTier: type === 'seed' ? SEED_TIER_MAP[rarity] : undefined,
   };
 }
 
@@ -120,31 +202,31 @@ const DROP_TABLES = {
     chance: 0.10,
     secondChance: 0,
     maxItemRarity: 0, // Common only
-    weights: { watering_boost: 30, day_boost: 10, art_reroll: 20, auto_water: 5, garden_upgrade: 3, plant_combine: 2, animate: 3 },
+    weights: { watering_boost: 30, day_boost: 10, art_reroll: 20, auto_water: 5, garden_upgrade: 3, plant_combine: 2, animate: 3, pot_fire: 2, pot_ice: 2, pot_earth: 2, pot_wind: 2 },
   },
   [RARITY.UNCOMMON]: {
     chance: 0.25,
     secondChance: 0,
     maxItemRarity: 1, // Up to Uncommon
-    weights: { watering_boost: 25, day_boost: 15, art_reroll: 20, auto_water: 10, garden_upgrade: 5, plant_combine: 5, animate: 5 },
+    weights: { watering_boost: 25, day_boost: 15, art_reroll: 20, auto_water: 10, garden_upgrade: 5, plant_combine: 5, animate: 5, pot_fire: 2, pot_ice: 2, pot_earth: 2, pot_wind: 2 },
   },
   [RARITY.RARE]: {
     chance: 0.50,
     secondChance: 0,
     maxItemRarity: 2, // Up to Rare
-    weights: { watering_boost: 20, day_boost: 20, art_reroll: 15, auto_water: 15, garden_upgrade: 10, plant_combine: 10, animate: 5 },
+    weights: { watering_boost: 20, day_boost: 20, art_reroll: 15, auto_water: 15, garden_upgrade: 10, plant_combine: 10, animate: 5, pot_fire: 3, pot_ice: 3, pot_earth: 3, pot_wind: 3 },
   },
   [RARITY.EPIC]: {
     chance: 0.75,
     secondChance: 0.25,
     maxItemRarity: 3, // Up to Epic
-    weights: { watering_boost: 15, day_boost: 20, art_reroll: 10, auto_water: 15, garden_upgrade: 15, plant_combine: 15, animate: 5 },
+    weights: { watering_boost: 15, day_boost: 20, art_reroll: 10, auto_water: 15, garden_upgrade: 15, plant_combine: 15, animate: 5, pot_fire: 3, pot_ice: 3, pot_earth: 3, pot_wind: 3 },
   },
   [RARITY.LEGENDARY]: {
     chance: 1.0,
     secondChance: 0.50,
     maxItemRarity: 4, // Any rarity
-    weights: { watering_boost: 10, day_boost: 15, art_reroll: 10, auto_water: 15, garden_upgrade: 20, plant_combine: 20, animate: 5 },
+    weights: { watering_boost: 10, day_boost: 15, art_reroll: 10, auto_water: 15, garden_upgrade: 20, plant_combine: 20, animate: 5, pot_fire: 4, pot_ice: 4, pot_earth: 4, pot_wind: 4 },
   },
 };
 
@@ -252,6 +334,24 @@ export function useAnimate(state, itemId, plantId) {
   return true;
 }
 
+// Use elemental pot item on a plant (current or garden)
+export function usePotElement(state, itemId, plantId) {
+  const item = state.items.find(i => i.id === itemId && i.type.startsWith('pot_'));
+  if (!item) return false;
+
+  let target = null;
+  if (state.currentPlant && state.currentPlant.id === plantId) {
+    target = state.currentPlant;
+  } else {
+    target = state.garden.find(p => p.id === plantId);
+  }
+  if (!target) return false;
+
+  target.potElement = item.type.replace('pot_', '');
+  removeItem(state, itemId);
+  return true;
+}
+
 // Use art reroll on a plant (current or garden)
 export function useArtReroll(state, itemId, plantId) {
   const item = state.items.find(i => i.id === itemId && i.type === 'art_reroll');
@@ -344,6 +444,7 @@ export function combinePlants(state, itemId, plantId1, plantId2) {
     bonusPassive: hasPassive,
     animated: !!(p1.animated || p2.animated),
     autoWater: false,
+    potElement: p1.potElement || p2.potElement || undefined,
   };
 
   // Remove source plants
@@ -358,5 +459,13 @@ export function combinePlants(state, itemId, plantId1, plantId2) {
   return uniquePlant;
 }
 
-// Register rollItemDrop globally so growth.js can access it without circular imports
+// Roll a seed drop — weighted random pick of seed rarity, returns a seed item
+export function rollSeedDrop(rng) {
+  const entries = RARITY_ORDER.map(r => ({ value: r, weight: SEED_DROP_WEIGHTS[r] || 0 }));
+  const seedRarity = rng.weighted(entries);
+  return createItem('seed', seedRarity);
+}
+
+// Register globally so growth.js can access without circular imports
 window.__rollItemDrop = rollItemDrop;
+window.__rollSeedDrop = rollSeedDrop;
