@@ -430,6 +430,72 @@ export function showCompletionOverlay(plant, stats, droppedItems) {
   }
 }
 
+// Show trivia overlay with a question
+// onAnswer(selectedIndex) is called when user picks a choice
+// onContinue() is called when user clicks Continue
+export function showTriviaOverlay(question, onAnswer, onContinue) {
+  const overlay = document.getElementById('triviaOverlay');
+  const questionEl = document.getElementById('triviaQuestion');
+  const choicesEl = document.getElementById('triviaChoices');
+  const resultEl = document.getElementById('triviaResult');
+  const factEl = document.getElementById('triviaFact');
+  const continueBtn = document.getElementById('triviaContinueBtn');
+
+  // Reset state
+  questionEl.textContent = question.question;
+  choicesEl.innerHTML = '';
+  resultEl.style.display = 'none';
+
+  // Build choice buttons
+  question.choices.forEach((choice, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'trivia-choice-btn';
+    btn.textContent = choice;
+    btn.addEventListener('click', () => {
+      // Disable all buttons
+      const allBtns = choicesEl.querySelectorAll('.trivia-choice-btn');
+      allBtns.forEach(b => { b.disabled = true; });
+
+      const correct = i === question.correctIndex;
+
+      // Highlight correct answer
+      allBtns[question.correctIndex].classList.add('trivia-choice-correct');
+
+      if (!correct) {
+        btn.classList.add('trivia-choice-wrong');
+      }
+
+      // Dim other buttons
+      allBtns.forEach((b, idx) => {
+        if (idx !== question.correctIndex && idx !== i) {
+          b.classList.add('trivia-choice-dimmed');
+        }
+      });
+
+      // Show result
+      const bonusText = correct ? '<span class="trivia-bonus-label">+1 BONUS GROWTH DAY</span><br>' : '';
+      factEl.innerHTML = bonusText + question.fact;
+      resultEl.style.display = '';
+
+      onAnswer(i);
+    });
+    choicesEl.appendChild(btn);
+  });
+
+  // Continue button
+  continueBtn.onclick = () => {
+    hideTriviaOverlay();
+    onContinue();
+  };
+
+  overlay.classList.add('overlay-visible');
+}
+
+export function hideTriviaOverlay() {
+  const overlay = document.getElementById('triviaOverlay');
+  overlay.classList.remove('overlay-visible');
+}
+
 export function hideCompletionOverlay() {
   const overlay = document.getElementById('completionOverlay');
   overlay.classList.remove('overlay-visible');

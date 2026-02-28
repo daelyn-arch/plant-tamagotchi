@@ -10,8 +10,10 @@ import {
   showScreen,
   showCompletionOverlay,
   hideCompletionOverlay,
+  showTriviaOverlay,
   stopSparkle,
 } from './ui.js';
+import { pickTriviaQuestion, checkAnswer } from './trivia.js';
 import { renderGardenView } from './garden.js';
 import { renderSpeciesGallery } from './species-gallery.js';
 import { renderInventoryView, setOnItemUsed, setOnInventoryBack } from './inventory-ui.js';
@@ -130,6 +132,7 @@ function handleWater() {
       playWaterAnimation(document.getElementById('plantCanvasWrap'));
       showToast(result.message, 'success');
       animateGrowthTransition(oldGrowthStage, newState, 3000);
+      setTimeout(() => showTrivia(newState), 3200);
       break;
     case 'completed':
       playWaterAnimation(document.getElementById('plantCanvasWrap'));
@@ -164,6 +167,63 @@ function handleMoveToGarden() {
     showToast(result.message, 'success');
     updatePlantView(state);
   }
+}
+
+function showTrivia(stateAfterWater) {
+  let state = loadState();
+  const { question, updatedRecent } = pickTriviaQuestion(state.triviaRecentIds);
+
+  // Save recent IDs immediately
+  state.triviaRecentIds = updatedRecent;
+  saveState(state);
+
+  let answered = false;
+  let wasCorrect = false;
+
+  showTriviaOverlay(
+    question,
+    // onAnswer
+    (selectedIndex) => {
+      wasCorrect = checkAnswer(question, selectedIndex);
+      answered = true;
+
+      if (wasCorrect) {
+        // Apply +1 bonus growth day
+        state = loadState();
+        const plant = state.currentPlant;
+        if (plant && plant.growthStage < 1.0) {
+          const oldStage = plant.growthStage;
+          plant.daysGrown += 1;
+          if (plant.daysGrown >= plant.totalDaysRequired) {
+            plant.daysGrown = plant.totalDaysRequired;
+            plant.growthStage = 1.0;
+          } else {
+            plant.growthStage = plant.daysGrown / plant.totalDaysRequired;
+          }
+          saveState(state);
+        }
+      }
+    },
+    // onContinue
+    () => {
+      state = loadState();
+      if (wasCorrect) {
+        showToast('Correct! +1 bonus growth day', 'success');
+        // Animate the bonus growth
+        const oldStage = stateAfterWater.currentPlant.growthStage;
+        animateGrowthTransition(oldStage, state, 1000);
+
+        // Check if bonus pushed plant to completion
+        if (state.currentPlant && state.currentPlant.growthStage >= 1.0) {
+          setTimeout(() => {
+            updatePlantView(state);
+          }, 1100);
+        }
+      } else {
+        updatePlantView(state);
+      }
+    },
+  );
 }
 
 function switchToGarden() {

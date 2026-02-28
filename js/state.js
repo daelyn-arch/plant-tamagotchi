@@ -8,6 +8,7 @@ function defaultState() {
     garden: [],
     items: [],
     activeBoosts: [],
+    triviaRecentIds: [],
     stats: {
       totalPlantsGrown: 0,
       currentStreak: 0,
@@ -30,6 +31,7 @@ export function loadState() {
       if (parsed.garden) state.garden = parsed.garden;
       if (parsed.items) state.items = parsed.items;
       if (parsed.activeBoosts) state.activeBoosts = parsed.activeBoosts;
+      if (parsed.triviaRecentIds) state.triviaRecentIds = parsed.triviaRecentIds;
       if (parsed.stats) state.stats = { ...state.stats, ...parsed.stats };
       return state;
     }
