@@ -1874,8 +1874,13 @@ h1, h2, h3 {
   }
 
   .plant-display {
-    aspect-ratio: 4 / 3;
+    aspect-ratio: auto;
     padding: 1rem 0.75rem;
+  }
+
+  .plant-canvas-wrap {
+    flex: 0 0 auto;
+    min-height: 160px;
   }
 
   .completion-card {
