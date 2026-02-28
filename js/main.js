@@ -161,12 +161,16 @@ function handleMoveToGarden() {
       stopSparkle(document.getElementById('plantCanvasWrap'));
       showToast(result.message, 'success');
       updatePlantView(state);
+      // Show trivia for the new plant
+      setTimeout(() => showTrivia(state), 500);
     };
   } else {
     hideCompletionOverlay();
     stopSparkle(document.getElementById('plantCanvasWrap'));
     showToast(result.message, 'success');
     updatePlantView(state);
+    // Show trivia for the new plant
+    setTimeout(() => showTrivia(state), 500);
   }
 }
 
