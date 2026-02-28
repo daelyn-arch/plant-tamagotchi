@@ -1873,6 +1873,11 @@ h1, h2, h3 {
     grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
   }
 
+  .plant-display {
+    aspect-ratio: 4 / 3;
+    padding: 1rem 0.75rem;
+  }
+
   .completion-card {
     padding: 1.25rem 1rem;
   }
