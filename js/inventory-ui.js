@@ -33,7 +33,10 @@ export function renderInventoryView(container) {
   header.className = 'garden-header';
   header.innerHTML = `
     <h2>Inventory</h2>
-    <button class="btn btn-back" id="inventoryBackBtn">Back to Plant</button>
+    <div class="header-actions">
+      <button class="btn btn-sm" id="itemGalleryBtn">Item Gallery</button>
+      <button class="btn btn-back" id="inventoryBackBtn">Back to Plant</button>
+    </div>
   `;
   container.appendChild(header);
 

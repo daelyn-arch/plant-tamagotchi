@@ -53,15 +53,9 @@ function init() {
     switchToInventory();
   });
 
-  // Gallery button
-  document.getElementById('galleryBtn').addEventListener('click', () => {
-    switchToGallery();
-  });
-
-  // Item Gallery button
-  document.getElementById('itemGalleryBtn').addEventListener('click', () => {
-    switchToItemGallery();
-  });
+  // Gallery and Item Gallery buttons are wired dynamically
+  // in switchToGarden() and switchToInventory() since they
+  // live inside those screens now.
 
   // Info button
   document.getElementById('infoBtn').addEventListener('click', () => {
@@ -89,9 +83,7 @@ function init() {
     updatePlantView(loadState());
   });
   setOnItemGalleryBack(() => {
-    currentScreen = 'plant';
-    showScreen('plantScreen');
-    updatePlantView(loadState());
+    switchToInventory();
   });
   setOnInfoBack(() => {
     currentScreen = 'plant';
@@ -180,7 +172,7 @@ function switchToGarden() {
   const container = document.getElementById('gardenContainer');
   renderGardenView(container);
 
-  // Back button (rendered by garden view)
+  // Wire buttons rendered by garden view
   setTimeout(() => {
     const backBtn = document.getElementById('gardenBackBtn');
     if (backBtn) {
@@ -191,6 +183,12 @@ function switchToGarden() {
         updatePlantView(loadState());
       });
     }
+    const galleryBtn = document.getElementById('galleryBtn');
+    if (galleryBtn) {
+      galleryBtn.addEventListener('click', () => {
+        switchToGallery();
+      });
+    }
   }, 0);
 }
 
@@ -199,6 +197,16 @@ function switchToInventory() {
   showScreen('inventoryScreen');
   const container = document.getElementById('inventoryContainer');
   renderInventoryView(container);
+
+  // Wire item gallery button rendered by inventory view
+  setTimeout(() => {
+    const itemGalleryBtn = document.getElementById('itemGalleryBtn');
+    if (itemGalleryBtn) {
+      itemGalleryBtn.addEventListener('click', () => {
+        switchToItemGallery();
+      });
+    }
+  }, 0);
 }
 
 function switchToItemGallery() {
@@ -245,9 +253,7 @@ function switchToGallery() {
     if (backBtn) {
       backBtn.addEventListener('click', () => {
         stopAllAnimators();
-        currentScreen = 'plant';
-        showScreen('plantScreen');
-        updatePlantView(loadState());
+        switchToGarden();
       });
     }
   }, 0);
@@ -357,6 +363,16 @@ function setupDevControls() {
         saveState(state);
         updatePlantView(loadState());
       }
+    });
+  }
+
+  const inspectBtn = document.getElementById('devInspector');
+  if (inspectBtn) {
+    inspectBtn.addEventListener('click', () => {
+      const active = window.__devInspectorToggle();
+      inspectBtn.style.background = active ? '#4a8a2a' : '';
+      inspectBtn.style.color = active ? '#fff' : '';
+      showToast(`DEV: Inspector ${active ? 'ON' : 'OFF'}`, 'info');
     });
   }
 }

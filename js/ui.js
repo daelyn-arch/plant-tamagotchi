@@ -14,6 +14,9 @@ import { PlantAnimator } from './animation.js';
 // Active animator instance
 let activeAnimator = null;
 
+// Countdown timer interval
+let countdownInterval = null;
+
 // Active growth animation (cancel if a new one starts)
 let growthAnimId = null;
 
@@ -218,20 +221,67 @@ function getPlantScale(plant) {
 export function updateWaterButton(state) {
   const btn = document.getElementById('waterBtn');
   const today = todayStr();
+  const alreadyWatered = state.stats.lastVisitDate === today;
 
   if (state.currentPlant && state.currentPlant.growthStage >= 1.0) {
     btn.textContent = 'Move to Garden';
     btn.disabled = false;
     btn.className = 'btn btn-water btn-complete';
-  } else if (state.stats.lastVisitDate === today) {
+    stopCountdown();
+  } else if (alreadyWatered) {
     btn.textContent = 'Come back tomorrow!';
     btn.disabled = true;
     btn.className = 'btn btn-water btn-disabled';
+    startCountdown(state);
   } else {
     btn.textContent = 'Water Your Plant';
     btn.disabled = false;
     btn.className = 'btn btn-water';
+    stopCountdown();
   }
+}
+
+function startCountdown(state) {
+  const wrap = document.getElementById('countdownWrap');
+  const timeEl = document.getElementById('countdownTime');
+  if (!wrap || !timeEl) return;
+
+  wrap.style.display = '';
+  updateCountdownDisplay(timeEl, state);
+
+  if (countdownInterval) clearInterval(countdownInterval);
+  countdownInterval = setInterval(() => {
+    updateCountdownDisplay(timeEl, state);
+  }, 1000);
+}
+
+function updateCountdownDisplay(timeEl, state) {
+  const now = new Date();
+  const midnight = new Date(now);
+  midnight.setHours(24, 0, 0, 0);
+
+  const diff = midnight - now;
+  if (diff <= 0) {
+    // Midnight passed — refresh water button state
+    stopCountdown();
+    updateWaterButton(state);
+    return;
+  }
+
+  const h = Math.floor(diff / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  const s = Math.floor((diff % 60000) / 1000);
+  timeEl.textContent =
+    `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function stopCountdown() {
+  if (countdownInterval) {
+    clearInterval(countdownInterval);
+    countdownInterval = null;
+  }
+  const wrap = document.getElementById('countdownWrap');
+  if (wrap) wrap.style.display = 'none';
 }
 
 // Show a toast message

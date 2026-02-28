@@ -61,7 +61,10 @@ export function renderGardenView(container) {
   header.className = 'garden-header';
   header.innerHTML = `
     <h2>Your Garden</h2>
-    <button class="btn btn-back" id="gardenBackBtn">Back to Plant</button>
+    <div class="header-actions">
+      <button class="btn btn-sm" id="galleryBtn">Species Gallery</button>
+      <button class="btn btn-back" id="gardenBackBtn">Back to Plant</button>
+    </div>
   `;
   container.appendChild(header);
 
@@ -120,13 +123,17 @@ export function renderGardenView(container) {
   const sortBar = document.createElement('div');
   sortBar.className = 'sort-bar';
   sortBar.innerHTML = `
-    <span>Sort by:</span>
-    ${SORT_MODES.map(
-      (m) =>
-        `<button class="btn btn-sm sort-btn" data-sort="${m}">${m.charAt(0).toUpperCase() + m.slice(1)}</button>`
-    ).join('')}
-    <button class="btn btn-sm bonus-toggle-btn" id="bonusToggle">Show Bonuses</button>
-    <button class="btn btn-sm replay-toggle-btn" id="replayToggle">Replay Growth</button>
+    <div class="sort-row">
+      <span class="sort-label">Sort by:</span>
+      ${SORT_MODES.map(
+        (m) =>
+          `<button class="btn btn-sm sort-btn" data-sort="${m}">${m.charAt(0).toUpperCase() + m.slice(1)}</button>`
+      ).join('')}
+    </div>
+    <div class="sort-row sort-toggles">
+      <button class="btn btn-sm bonus-toggle-btn" id="bonusToggle">Show Bonuses</button>
+      <button class="btn btn-sm replay-toggle-btn" id="replayToggle">Replay Growth</button>
+    </div>
   `;
   container.appendChild(sortBar);
 

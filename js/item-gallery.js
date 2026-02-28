@@ -15,7 +15,7 @@ export function renderItemGallery(container) {
   header.className = 'garden-header';
   header.innerHTML = `
     <h2>Item Gallery</h2>
-    <button class="btn btn-back" id="itemGalleryBackBtn">Back to Plant</button>
+    <button class="btn btn-back" id="itemGalleryBackBtn">Back to Inventory</button>
   `;
   container.appendChild(header);
 

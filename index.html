@@ -52,11 +52,13 @@
 
     <div class="actions">
       <button class="btn btn-water" id="waterBtn">Water Your Plant</button>
+      <div class="countdown-wrap" id="countdownWrap" style="display:none">
+        <span class="countdown-label">Next watering in</span>
+        <span class="countdown-time" id="countdownTime">--:--:--</span>
+      </div>
       <div class="secondary-actions">
         <button class="btn" id="gardenBtn">View Garden</button>
         <button class="btn" id="inventoryBtn">Inventory</button>
-        <button class="btn" id="galleryBtn">Species Gallery</button>
-        <button class="btn" id="itemGalleryBtn">Item Gallery</button>
         <button class="btn" id="minigameBtn" style="display:none">Play</button>
         <button class="btn" id="infoBtn">Info</button>
       </div>
@@ -124,10 +126,12 @@
       <button class="dev-btn" id="devAllPlants">+All Plants</button>
       <button class="dev-btn" id="devReset">Reset All</button>
       <button class="dev-btn" id="devUnlimitedWater">∞ Water</button>
+      <button class="dev-btn" id="devInspector">Inspect</button>
     </div>
     <button class="dev-toggle" id="devToggle">DEV</button>
   </div>
 
+  <script src="js/dev-inspector.js"></script>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>
