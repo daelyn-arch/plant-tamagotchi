@@ -3,3 +3,11 @@ node_modules/
 .playwright-mcp/
 .mcp.json
 *.png
+
+# Test infrastructure
+test-results/
+tests/
+test-*.mjs
+playwright.config.js
+package.json
+package-lock.json
