@@ -23,6 +23,7 @@ import { renderItemGallery, setOnItemGalleryBack } from './item-gallery.js';
 import { renderInfoPanel, setOnInfoBack } from './info-panel.js';
 import { SPECIES, RARITY } from './plant-data.js';
 import { startMinigame, stopMinigame } from './minigame.js';
+import { potLevelFromExp } from './canvas-utils.js';
 
 let currentScreen = 'plant';
 let devUnlimitedWater = false;
@@ -435,6 +436,24 @@ function setupDevControls() {
       showToast(`DEV: Inspector ${active ? 'ON' : 'OFF'}`, 'info');
     });
   }
+
+  document.getElementById('devPotExp')?.addEventListener('click', () => {
+    const state = loadState();
+    let count = 0;
+    for (const plant of state.garden) {
+      if (plant.potElement) {
+        plant.potExp = (plant.potExp || 0) + 100;
+        plant.potLevel = potLevelFromExp(plant.potExp);
+        count++;
+      }
+    }
+    if (count > 0) {
+      saveState(state);
+      showToast(`DEV: +100 Pot EXP to ${count} elemental plant${count > 1 ? 's' : ''}`, 'info');
+    } else {
+      showToast('DEV: No elemental plants in garden', 'info');
+    }
+  });
 }
 
 // Boot

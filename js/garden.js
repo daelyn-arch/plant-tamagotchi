@@ -4,6 +4,7 @@ import { loadState } from './state.js';
 import { RARITY, RARITY_COLORS, getCanvasSize } from './plant-data.js';
 import { PlantAnimator, GrowthReplayAnimator, stopAllAnimators } from './animation.js';
 import { WATERING_BONUS_VALUES, DAY_BONUS_VALUES, wateringBonusCapRaw, dayBonusCapRaw, legendaryPassiveCap } from './growth.js';
+import { POT_LEVEL_THRESHOLDS, potLevelFromExp } from './canvas-utils.js';
 
 const SORT_MODES = ['date', 'rarity', 'species'];
 
@@ -180,11 +181,13 @@ export function renderGardenView(container) {
       info.className = 'garden-card-info';
       const displayRarity = plant.unique ? `Unique ${plant.uniqueBase || plant.rarity}` : plant.rarity;
       const displayColor = plant.unique ? '#c0c8d4' : RARITY_COLORS[plant.rarity];
+      const potLvl = plant.potElement ? (plant.potLevel || 0) : 0;
       info.innerHTML = `
         <span class="garden-card-name" style="color:${displayColor}">${plant.species}</span>
         <span class="garden-card-rarity">${displayRarity}</span>
         ${plant.unique ? '<span class="unique-badge">Unique</span>' : ''}
         ${plant.upgradeMultiplier && plant.upgradeMultiplier > 1 ? '<span class="upgraded-badge">Upgraded</span>' : ''}
+        ${potLvl > 0 ? `<span class="pot-level-badge pot-level-${plant.potElement}">Lv.${potLvl}</span>` : ''}
       `;
 
       // Bonus overlay
@@ -457,6 +460,29 @@ function showPlantDetail(container, plant, replayMode) {
   const upgradeLine = plant.upgradeMultiplier && plant.upgradeMultiplier > 1
     ? `<p>Bonus multiplier: <strong>${plant.upgradeMultiplier.toFixed(1)}x</strong></p>` : '';
 
+  // Pot EXP/level info
+  let potExpLine = '';
+  if (plant.potElement) {
+    const pExp = plant.potExp || 0;
+    const pLvl = plant.potLevel || 0;
+    const elementNames = { fire: 'Fire', ice: 'Ice', earth: 'Earth', wind: 'Wind' };
+    const eleName = elementNames[plant.potElement] || plant.potElement;
+    const nextThreshold = pLvl < 3 ? POT_LEVEL_THRESHOLDS[pLvl + 1] : null;
+    const prevThreshold = POT_LEVEL_THRESHOLDS[pLvl];
+    let progressBar = '';
+    if (nextThreshold !== null) {
+      const pct = Math.min(100, Math.round(((pExp - prevThreshold) / (nextThreshold - prevThreshold)) * 100));
+      progressBar = `<div class="detail-exp-bar"><div class="detail-exp-bar-fill detail-exp-fill-${plant.potElement}" style="width:${pct}%"></div></div>
+        <span class="detail-exp-numbers">${pExp} / ${nextThreshold} EXP</span>`;
+    } else {
+      progressBar = `<span class="detail-exp-numbers">${pExp} EXP (MAX)</span>`;
+    }
+    potExpLine = `<div class="detail-pot-exp">
+      <p>${eleName} Pot — <strong>Lv.${pLvl}</strong></p>
+      ${progressBar}
+    </div>`;
+  }
+
   overlay.innerHTML = `
     <div class="detail-card">
       <div class="detail-canvas-wrap"></div>
@@ -469,6 +495,7 @@ function showPlantDetail(container, plant, replayMode) {
         <p>Days visited: ${plant.daysVisited ? plant.daysVisited.length : '?'}</p>
         <p>Growth days needed: ${plant.totalDaysRequired}</p>
         ${upgradeLine}
+        ${potExpLine}
       </div>
       <button class="btn btn-close-detail">Close</button>
     </div>

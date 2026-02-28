@@ -96,6 +96,16 @@ export function generatePalette(rng) {
   return { greens, flowers, pot, soil, stem };
 }
 
+// Pot level EXP thresholds
+export const POT_LEVEL_THRESHOLDS = [0, 50, 150, 300];
+
+export function potLevelFromExp(exp) {
+  if (exp >= 300) return 3;
+  if (exp >= 150) return 2;
+  if (exp >= 50) return 1;
+  return 0;
+}
+
 // Elemental pot color palettes
 export const ELEMENTAL_POT_PALETTES = {
   fire: {

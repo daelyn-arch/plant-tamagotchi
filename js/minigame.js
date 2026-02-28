@@ -3,6 +3,7 @@
 
 import { renderPlant } from './plant-generator.js';
 import { loadState, saveState } from './state.js';
+import { potLevelFromExp, POT_LEVEL_THRESHOLDS } from './canvas-utils.js';
 
 // ── Constants ──────────────────────────────────────────────────────
 const W = 320;
@@ -52,6 +53,10 @@ let selectedPlant = null;
 // Immunity flash effect
 let immuneFlash = 0;
 let immuneFlashColor = null;
+
+// Pot EXP tracking
+let runExpGained = 0;
+let pendingLevelUp = null; // { oldLevel, newLevel, element }
 
 // ── Public API ─────────────────────────────────────────────────────
 
@@ -177,6 +182,8 @@ function resetGame() {
   gameOverTime = 0;
   immuneFlash = 0;
   immuneFlashColor = null;
+  runExpGained = 0;
+  pendingLevelUp = null;
 
   clouds = [];
   for (let i = 0; i < CLOUD_COUNT; i++) {
@@ -368,6 +375,10 @@ function checkCollisions() {
       if (px1 < ox2 && px2 > ox1 && py1 < oy2 && py2 > oy1) {
         immuneFlash = 12;
         immuneFlashColor = ELEMENT_FLASH_COLORS[potElement] || 'rgba(255,255,255,0.5)';
+        if (!obs.expCounted) {
+          obs.expCounted = true;
+          runExpGained++;
+        }
       }
       continue;
     }
@@ -676,6 +687,23 @@ function gameOver() {
   const isNewHigh = score > state.stats.minigameHighScore;
   if (isNewHigh) {
     state.stats.minigameHighScore = score;
+  }
+
+  // Persist pot EXP
+  if (selectedPlant && selectedPlant.potElement && runExpGained > 0) {
+    const gardenPlant = state.garden.find(p => p.id === selectedPlant.id);
+    if (gardenPlant) {
+      const oldExp = gardenPlant.potExp || 0;
+      const oldLevel = potLevelFromExp(oldExp);
+      gardenPlant.potExp = oldExp + runExpGained;
+      gardenPlant.potLevel = potLevelFromExp(gardenPlant.potExp);
+      if (gardenPlant.potLevel > oldLevel) {
+        pendingLevelUp = { oldLevel, newLevel: gardenPlant.potLevel, element: gardenPlant.potElement };
+      }
+    }
+  }
+
+  if (isNewHigh || (selectedPlant && selectedPlant.potElement && runExpGained > 0)) {
     saveState(state);
   }
 
@@ -796,11 +824,48 @@ function showGameOver(finalScore, highScore, isNewHigh) {
   const content = document.getElementById('minigameOverlayContent');
   overlay.classList.remove('hidden');
 
+  // Build EXP section if applicable
+  let expHtml = '';
+  if (selectedPlant && selectedPlant.potElement && runExpGained > 0) {
+    const state = loadState();
+    const gardenPlant = state.garden.find(p => p.id === selectedPlant.id);
+    const totalExp = gardenPlant ? (gardenPlant.potExp || 0) : 0;
+    const currentLevel = potLevelFromExp(totalExp);
+    const nextThreshold = currentLevel < 3 ? POT_LEVEL_THRESHOLDS[currentLevel + 1] : null;
+    const prevThreshold = POT_LEVEL_THRESHOLDS[currentLevel];
+
+    const elementNames = { fire: 'Fire', ice: 'Ice', earth: 'Earth', wind: 'Wind' };
+    const eleName = elementNames[selectedPlant.potElement] || selectedPlant.potElement;
+
+    let progressHtml = '';
+    if (nextThreshold !== null) {
+      const pct = Math.min(100, Math.round(((totalExp - prevThreshold) / (nextThreshold - prevThreshold)) * 100));
+      progressHtml = `
+        <div class="mg-exp-progress">
+          <div class="mg-exp-bar"><div class="mg-exp-bar-fill" style="width:${pct}%"></div></div>
+          <span class="mg-exp-numbers">${totalExp} / ${nextThreshold} EXP</span>
+        </div>`;
+    } else {
+      progressHtml = `<div class="mg-exp-numbers">${totalExp} EXP (MAX)</div>`;
+    }
+
+    expHtml = `
+      <div class="mg-exp-gained">+${runExpGained} ${eleName} Pot EXP</div>
+      ${pendingLevelUp ? `<div class="mg-level-up">Pot Level Up! Lv.${pendingLevelUp.oldLevel} → Lv.${pendingLevelUp.newLevel}</div>` : ''}
+      <div class="mg-exp-section">
+        <span class="mg-pot-level">Pot Lv.${currentLevel}</span>
+        ${progressHtml}
+      </div>`;
+  } else if (selectedPlant && selectedPlant.potElement && runExpGained === 0) {
+    expHtml = `<div class="mg-exp-gained mg-exp-none">No obstacles absorbed</div>`;
+  }
+
   content.innerHTML = `
     <div class="mg-title">Game Over</div>
     <div class="mg-score-final">Score: ${finalScore}</div>
     ${isNewHigh ? '<div class="mg-new-high">New High Score!</div>' : ''}
     <div class="mg-high-score">Best: ${highScore}</div>
+    ${expHtml}
     <button class="btn mg-play-btn" id="mgRetryBtn">Retry</button>
     <button class="btn mg-back-btn" id="mgBackBtn2">Back to Plant</button>
   `;

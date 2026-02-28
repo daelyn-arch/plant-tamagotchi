@@ -9,6 +9,7 @@ import {
   generatePalette,
   hsl,
   ELEMENTAL_POT_PALETTES,
+  potLevelFromExp,
 } from './canvas-utils.js';
 import {
   getCanvasSize,
@@ -18,7 +19,7 @@ import {
 
 // ── Pot ────────────────────────────────────────────────────────────
 
-function drawPot(ctx, size, palette, rng, potElement) {
+function drawPot(ctx, size, palette, rng, potElement, potLevel = 0, plantSeed = 0) {
   const elePalette = potElement && ELEMENTAL_POT_PALETTES[potElement];
   const potColors = elePalette ? elePalette.pot : palette.pot;
   const soilColors = elePalette ? elePalette.soil : palette.soil;
@@ -137,6 +138,371 @@ function drawPot(ctx, size, palette, rng, potElement) {
         if ((x + rng.int(0, 2)) % 3 === 0) {
           const wc = rng.chance(0.5) ? '#70d0c0' : '#3a9a8a';
           setPixel(ctx, x, rimTopY - 1, wc);
+        }
+      }
+    }
+
+    // ── Pot level evolution decorations ──
+    if (potLevel >= 1) {
+      // Use isolated RNG so level decorations don't affect existing appearance
+      const potLevelRng = createRng((plantSeed + 7777) >>> 0);
+      const bodyH = potHeight - rimHeight;
+      const bodyTopY = potBottom - bodyH + 1;
+
+      // Helper: get pot body width at a given row (0 = bottom of body)
+      function bodyWidthAt(row) {
+        const t = row / (bodyH || 1);
+        return Math.round(bottomW + (topW - bottomW) * t);
+      }
+
+      if (potElement === 'fire') {
+        // ── Fire Level 1: 80% rim coverage, embers above rim, glow line ──
+        if (potLevel >= 1) {
+          // Extended rim coverage
+          for (let x = eleRimLeft; x < eleRimLeft + eleRimW; x++) {
+            if (potLevelRng.chance(0.8)) {
+              const fc = potLevelRng.chance(0.5) ? '#e06020' : '#f0a030';
+              setPixel(ctx, x, rimTopY - 1, fc);
+              // Embers 3px above rim
+              if (potLevelRng.chance(0.3)) setPixel(ctx, x, rimTopY - 3, '#f0c040');
+            }
+          }
+          // Warm glow line at pot midpoint
+          const glowY = bodyTopY + Math.floor(bodyH / 2);
+          const glowW = bodyWidthAt(Math.floor(bodyH / 2)) - 4;
+          const glowLeft = cx - Math.floor(glowW / 2);
+          for (let x = glowLeft; x < glowLeft + glowW; x++) {
+            if (potLevelRng.chance(0.5)) setPixel(ctx, x, glowY, '#c04020');
+          }
+        }
+
+        // ── Fire Level 2: flames above rim, embers on body, lava crack ──
+        if (potLevel >= 2) {
+          // Flames 4-5px above rim
+          for (let x = eleRimLeft; x < eleRimLeft + eleRimW; x++) {
+            if (potLevelRng.chance(0.5)) {
+              const fh = potLevelRng.int(4, 5);
+              for (let dy = 1; dy <= fh; dy++) {
+                const t = dy / fh;
+                const fc = t < 0.4 ? '#e04020' : t < 0.7 ? '#f08030' : '#f0c040';
+                if (potLevelRng.chance(0.7 - t * 0.3)) setPixel(ctx, x, rimTopY - 1 - dy, fc);
+              }
+            }
+          }
+          // Ember pixels on pot body (~15% density)
+          for (let row = 0; row < bodyH; row++) {
+            const w = bodyWidthAt(row);
+            const left = cx - Math.floor(w / 2);
+            for (let x = left + 1; x < left + w - 1; x++) {
+              if (potLevelRng.chance(0.15)) {
+                setPixel(ctx, x, potBottom - row, potLevelRng.chance(0.5) ? '#c04020' : '#e06030');
+              }
+            }
+          }
+          // Lava crack — RNG-positioned vertical line
+          const crackX = cx + potLevelRng.int(-Math.floor(bottomW / 4), Math.floor(bottomW / 4));
+          for (let row = 1; row < bodyH - 1; row++) {
+            if (potLevelRng.chance(0.7)) {
+              setPixel(ctx, crackX + potLevelRng.int(-1, 1), potBottom - row, '#f04020');
+            }
+          }
+        }
+
+        // ── Fire Level 3: full flame crown, glowing veins, ember soil, underglow ──
+        if (potLevel >= 3) {
+          // Full flame crown 6-7px
+          for (let x = eleRimLeft; x < eleRimLeft + eleRimW; x++) {
+            const fh = potLevelRng.int(6, 7);
+            for (let dy = 1; dy <= fh; dy++) {
+              const t = dy / fh;
+              const fc = t < 0.3 ? '#c02010' : t < 0.6 ? '#e05020' : t < 0.8 ? '#f0a030' : '#f0d050';
+              if (potLevelRng.chance(0.8 - t * 0.3)) setPixel(ctx, x, rimTopY - 1 - dy, fc);
+            }
+          }
+          // Glowing vein cracks on pot body
+          for (let v = 0; v < 3; v++) {
+            let vx = cx + potLevelRng.int(-Math.floor(bottomW / 3), Math.floor(bottomW / 3));
+            for (let row = 0; row < bodyH; row++) {
+              vx += potLevelRng.int(-1, 1);
+              if (potLevelRng.chance(0.6)) setPixel(ctx, vx, potBottom - row, '#f06030');
+            }
+          }
+          // Ember-dotted soil
+          const soilY2 = potTop + rimHeight - 1;
+          const soilW2 = topW - 2;
+          const soilLeft2 = cx - Math.floor(soilW2 / 2);
+          for (let x = soilLeft2; x < soilLeft2 + soilW2; x++) {
+            if (potLevelRng.chance(0.3)) setPixel(ctx, x, soilY2, '#c04020');
+            if (potLevelRng.chance(0.2)) setPixel(ctx, x, soilY2 - 1, '#e06030');
+          }
+          // Faint glow below pot
+          const glowBelowW = bottomW - 2;
+          const glowBelowLeft = cx - Math.floor(glowBelowW / 2);
+          for (let x = glowBelowLeft; x < glowBelowLeft + glowBelowW; x++) {
+            if (potLevelRng.chance(0.4)) setPixel(ctx, x, potBottom + 1, '#80200080');
+          }
+        }
+      } else if (potElement === 'ice') {
+        // ── Ice Level 1: denser crystals, frost line ──
+        if (potLevel >= 1) {
+          for (let x = eleRimLeft; x < eleRimLeft + eleRimW; x += 2) {
+            const ic = potLevelRng.chance(0.5) ? '#80d0f0' : '#a0e0ff';
+            setPixel(ctx, x, rimTopY - 1, ic);
+            if (potLevelRng.chance(0.5)) setPixel(ctx, x, rimTopY - 3, '#e0f4ff');
+          }
+          // Frost line at pot midpoint
+          const frostY = bodyTopY + Math.floor(bodyH / 2);
+          const frostW = bodyWidthAt(Math.floor(bodyH / 2)) - 4;
+          const frostLeft = cx - Math.floor(frostW / 2);
+          for (let x = frostLeft; x < frostLeft + frostW; x++) {
+            if (potLevelRng.chance(0.5)) setPixel(ctx, x, frostY, '#80d0f0');
+          }
+        }
+
+        // ── Ice Level 2: tall crystal spires, frost body, icicles ──
+        if (potLevel >= 2) {
+          // 2-3 tall crystal spires
+          const spireCount = potLevelRng.int(2, 3);
+          for (let s = 0; s < spireCount; s++) {
+            const sx = eleRimLeft + potLevelRng.int(2, eleRimW - 3);
+            for (let dy = 1; dy <= potLevelRng.int(5, 6); dy++) {
+              const c = dy <= 2 ? '#60c0e0' : dy <= 4 ? '#a0e0ff' : '#e0f4ff';
+              setPixel(ctx, sx, rimTopY - 1 - dy, c);
+              if (dy <= 3) setPixel(ctx, sx + 1, rimTopY - 1 - dy, '#80d0f0');
+            }
+          }
+          // Frost texture on pot body (~20%)
+          for (let row = 0; row < bodyH; row++) {
+            const w = bodyWidthAt(row);
+            const left = cx - Math.floor(w / 2);
+            for (let x = left + 1; x < left + w - 1; x++) {
+              if (potLevelRng.chance(0.20)) setPixel(ctx, x, potBottom - row, '#80d0f080');
+            }
+          }
+          // Small icicles from pot bottom
+          for (let x = cx - Math.floor(bottomW / 2) + 1; x < cx + Math.floor(bottomW / 2); x += potLevelRng.int(3, 5)) {
+            const icicleLen = potLevelRng.int(2, 3);
+            for (let dy = 0; dy < icicleLen; dy++) {
+              setPixel(ctx, x, potBottom + 1 + dy, dy === 0 ? '#80d0f0' : '#a0e0ff');
+            }
+          }
+        }
+
+        // ── Ice Level 3: continuous crystal crown, heavy frost, large icicles, frozen soil ──
+        if (potLevel >= 3) {
+          // Continuous crystal crown
+          for (let x = eleRimLeft; x < eleRimLeft + eleRimW; x++) {
+            const ch = potLevelRng.int(4, 6);
+            for (let dy = 1; dy <= ch; dy++) {
+              const c = dy <= 2 ? '#60b0d0' : dy <= 4 ? '#80d0f0' : '#e0f4ff';
+              if (potLevelRng.chance(0.8)) setPixel(ctx, x, rimTopY - 1 - dy, c);
+            }
+          }
+          // Heavy frost (40% of body)
+          for (let row = 0; row < bodyH; row++) {
+            const w = bodyWidthAt(row);
+            const left = cx - Math.floor(w / 2);
+            for (let x = left + 1; x < left + w - 1; x++) {
+              if (potLevelRng.chance(0.40)) setPixel(ctx, x, potBottom - row, '#a0e0ff60');
+            }
+          }
+          // Large icicle formations
+          for (let x = cx - Math.floor(bottomW / 2) + 1; x < cx + Math.floor(bottomW / 2); x += potLevelRng.int(2, 4)) {
+            const icicleLen = potLevelRng.int(3, 5);
+            for (let dy = 0; dy < icicleLen; dy++) {
+              const c = dy === 0 ? '#60b0d0' : dy < icicleLen - 1 ? '#80d0f0' : '#e0f4ff';
+              setPixel(ctx, x, potBottom + 1 + dy, c);
+            }
+          }
+          // Frozen soil
+          const soilY2 = potTop + rimHeight - 1;
+          const soilW2 = topW - 2;
+          const soilLeft2 = cx - Math.floor(soilW2 / 2);
+          for (let x = soilLeft2; x < soilLeft2 + soilW2; x++) {
+            if (potLevelRng.chance(0.5)) setPixel(ctx, x, soilY2, '#80d0f0');
+            if (potLevelRng.chance(0.3)) setPixel(ctx, x, soilY2 - 1, '#a0e0ff');
+          }
+        }
+      } else if (potElement === 'earth') {
+        // ── Earth Level 1: denser rock bumps, stone band, pebbles ──
+        if (potLevel >= 1) {
+          for (let x = eleRimLeft + 1; x < eleRimLeft + eleRimW - 1; x += 3) {
+            const rc = potLevelRng.chance(0.5) ? '#c09040' : '#a08860';
+            setPixel(ctx, x, rimTopY - 1, rc);
+            setPixel(ctx, x + 1, rimTopY - 1, rc);
+            if (potLevelRng.chance(0.5)) setPixel(ctx, x, rimTopY - 2, rc);
+          }
+          // Stone band at pot midpoint
+          const bandY = bodyTopY + Math.floor(bodyH / 2);
+          const bandW = bodyWidthAt(Math.floor(bodyH / 2)) - 2;
+          const bandLeft = cx - Math.floor(bandW / 2);
+          for (let x = bandLeft; x < bandLeft + bandW; x++) {
+            if (potLevelRng.chance(0.6)) setPixel(ctx, x, bandY, potLevelRng.chance(0.5) ? '#8a7040' : '#a08860');
+          }
+          // Scattered pebbles on body
+          for (let row = 0; row < bodyH; row++) {
+            const w = bodyWidthAt(row);
+            const left = cx - Math.floor(w / 2);
+            for (let x = left + 1; x < left + w - 1; x++) {
+              if (potLevelRng.chance(0.08)) setPixel(ctx, x, potBottom - row, '#c09040');
+            }
+          }
+        }
+
+        // ── Earth Level 2: boulder formations, mortar texture, moss patches ──
+        if (potLevel >= 2) {
+          // 2-3 boulder formations on rim
+          const boulderCount = potLevelRng.int(2, 3);
+          for (let b = 0; b < boulderCount; b++) {
+            const bx = eleRimLeft + potLevelRng.int(2, eleRimW - 4);
+            for (let dy = 0; dy < 3; dy++) {
+              for (let dx = 0; dx < 3; dx++) {
+                if (potLevelRng.chance(0.7)) {
+                  const bc = potLevelRng.chance(0.5) ? '#8a7040' : '#a08860';
+                  setPixel(ctx, bx + dx, rimTopY - 1 - dy, bc);
+                }
+              }
+            }
+          }
+          // Stone mortar texture on body
+          for (let row = 0; row < bodyH; row++) {
+            const w = bodyWidthAt(row);
+            const left = cx - Math.floor(w / 2);
+            for (let x = left + 1; x < left + w - 1; x++) {
+              if (potLevelRng.chance(0.12)) setPixel(ctx, x, potBottom - row, '#6a5030');
+            }
+          }
+          // Moss patches (green pixel clusters)
+          for (let m = 0; m < 3; m++) {
+            const mx = cx + potLevelRng.int(-Math.floor(bottomW / 3), Math.floor(bottomW / 3));
+            const my = potBottom - potLevelRng.int(1, bodyH - 2);
+            for (let dx = -1; dx <= 1; dx++) {
+              for (let dy = -1; dy <= 0; dy++) {
+                if (potLevelRng.chance(0.6)) setPixel(ctx, mx + dx, my + dy, potLevelRng.chance(0.5) ? '#4a8a30' : '#3a7020');
+              }
+            }
+          }
+        }
+
+        // ── Earth Level 3: jagged ridge, stone-shifted colors, geode crack, thick moss ──
+        if (potLevel >= 3) {
+          // Jagged mountain ridge across entire rim
+          for (let x = eleRimLeft; x < eleRimLeft + eleRimW; x++) {
+            const rh = potLevelRng.int(5, 8);
+            for (let dy = 0; dy < rh; dy++) {
+              const t = dy / rh;
+              const c = t < 0.3 ? '#6a5030' : t < 0.6 ? '#8a7040' : t < 0.8 ? '#a08860' : '#c0a870';
+              if (potLevelRng.chance(0.7)) setPixel(ctx, x, rimTopY - 1 - dy, c);
+            }
+          }
+          // Crystal geode cracking through one side
+          const geodeSide = potLevelRng.chance(0.5) ? -1 : 1;
+          const geodeX = cx + geodeSide * Math.floor(bottomW / 4);
+          for (let row = Math.floor(bodyH * 0.2); row < Math.floor(bodyH * 0.7); row++) {
+            const gx = geodeX + potLevelRng.int(-1, 1);
+            setPixel(ctx, gx, potBottom - row, potLevelRng.chance(0.5) ? '#c070d0' : '#a050b0');
+            if (potLevelRng.chance(0.4)) setPixel(ctx, gx + geodeSide, potBottom - row, '#d0a0e0');
+          }
+          // Thick moss at base
+          for (let x = cx - Math.floor(bottomW / 2); x < cx + Math.floor(bottomW / 2); x++) {
+            if (potLevelRng.chance(0.5)) {
+              setPixel(ctx, x, potBottom, potLevelRng.chance(0.5) ? '#4a8a30' : '#3a7020');
+              if (potLevelRng.chance(0.3)) setPixel(ctx, x, potBottom - 1, '#5a9a40');
+            }
+          }
+        }
+      } else if (potElement === 'wind') {
+        // ── Wind Level 1: denser swirls, wind streaks, body swirl ──
+        if (potLevel >= 1) {
+          for (let x = eleRimLeft; x < eleRimLeft + eleRimW; x += 2) {
+            const wc = potLevelRng.chance(0.5) ? '#70d0c0' : '#3a9a8a';
+            setPixel(ctx, x, rimTopY - 1, wc);
+          }
+          // 2-3 wind streaks above rim
+          const streakCount = potLevelRng.int(2, 3);
+          for (let s = 0; s < streakCount; s++) {
+            const sx = eleRimLeft + potLevelRng.int(2, eleRimW - 4);
+            const sLen = potLevelRng.int(2, 3);
+            for (let dx = 0; dx < sLen; dx++) {
+              setPixel(ctx, sx + dx, rimTopY - 2 - potLevelRng.int(0, 1), '#70d0c0');
+            }
+          }
+          // Single swirl on pot body
+          const swX = cx + potLevelRng.int(-3, 3);
+          const swY = bodyTopY + Math.floor(bodyH / 2);
+          setPixel(ctx, swX, swY, '#70d0c0');
+          setPixel(ctx, swX + 1, swY - 1, '#3a9a8a');
+          setPixel(ctx, swX + 2, swY, '#70d0c0');
+        }
+
+        // ── Wind Level 2: wind trails, spiral body patterns, floating debris ──
+        if (potLevel >= 2) {
+          // 3-4 wind trails above rim
+          const trailCount = potLevelRng.int(3, 4);
+          for (let t = 0; t < trailCount; t++) {
+            const tx = eleRimLeft + potLevelRng.int(1, eleRimW - 3);
+            const tLen = potLevelRng.int(3, 5);
+            const ty = rimTopY - potLevelRng.int(3, 5);
+            for (let dx = 0; dx < tLen; dx++) {
+              const c = potLevelRng.chance(0.5) ? '#70d0c0' : '#a0e8e0';
+              setPixel(ctx, tx + dx, ty + (dx % 2 === 0 ? 0 : -1), c);
+            }
+          }
+          // Spiral patterns on pot body
+          for (let sp = 0; sp < 2; sp++) {
+            let spx = cx + potLevelRng.int(-Math.floor(bottomW / 3), Math.floor(bottomW / 3));
+            let spy = bodyTopY + potLevelRng.int(2, bodyH - 3);
+            for (let i = 0; i < 5; i++) {
+              setPixel(ctx, spx, spy, '#70d0c080');
+              spx += potLevelRng.int(-1, 1);
+              spy += potLevelRng.int(-1, 0);
+            }
+          }
+          // Floating debris pixels above rim
+          for (let d = 0; d < 4; d++) {
+            const dx = eleRimLeft + potLevelRng.int(0, eleRimW);
+            const dy = rimTopY - potLevelRng.int(3, 6);
+            setPixel(ctx, dx, dy, potLevelRng.chance(0.5) ? '#a0e8e0' : '#70d0c0');
+          }
+        }
+
+        // ── Wind Level 3: vortex above rim, wind lines wrapping body, cloud wisps, lightning ──
+        if (potLevel >= 3) {
+          // Vortex shape above rim
+          for (let x = eleRimLeft; x < eleRimLeft + eleRimW; x++) {
+            const distFromCenter = Math.abs(x - cx);
+            const vh = Math.max(2, 8 - distFromCenter);
+            for (let dy = 1; dy <= vh; dy++) {
+              const c = dy <= 3 ? '#3a9a8a' : dy <= 5 ? '#70d0c0' : '#a0e8e0';
+              if (potLevelRng.chance(0.6)) setPixel(ctx, x, rimTopY - 1 - dy, c);
+            }
+          }
+          // Wind lines wrapping around pot body
+          for (let row = 0; row < bodyH; row += 2) {
+            const w = bodyWidthAt(row);
+            const left = cx - Math.floor(w / 2);
+            if (potLevelRng.chance(0.4)) {
+              for (let x = left; x < left + w; x++) {
+                if (potLevelRng.chance(0.25)) setPixel(ctx, x, potBottom - row, '#70d0c060');
+              }
+            }
+          }
+          // Cloud wisps flanking pot
+          for (let side = -1; side <= 1; side += 2) {
+            const wispX = cx + side * Math.floor(rimW / 2 + 2);
+            for (let dy = 0; dy < 3; dy++) {
+              setPixel(ctx, wispX, bodyTopY + potLevelRng.int(1, bodyH - 2) + dy, '#a0e8e040');
+              setPixel(ctx, wispX + side, bodyTopY + potLevelRng.int(1, bodyH - 2) + dy, '#70d0c040');
+            }
+          }
+          // Lightning spark
+          let lx = cx + potLevelRng.int(-2, 2);
+          let ly = rimTopY - potLevelRng.int(4, 7);
+          for (let i = 0; i < 4; i++) {
+            setPixel(ctx, lx, ly, '#ffffa0');
+            lx += potLevelRng.int(-1, 1);
+            ly += 1;
+          }
         }
       }
     }
@@ -1945,7 +2311,7 @@ function renderPlantBody(plant, growthStage, frameOffset) {
   clearCanvas(ctx, size, size);
 
   // Always draw pot
-  const { soilY, cx } = drawPot(ctx, size, palette, rng, plant.potElement);
+  const { soilY, cx } = drawPot(ctx, size, palette, rng, plant.potElement, plant.potLevel || 0, plant.seed);
 
   if (growthStage < 0.05) {
     return canvas;

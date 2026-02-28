@@ -2494,3 +2494,110 @@ h1, h2, h3 {
   line-height: 1.8;
   text-align: center;
 }
+
+/* ── Pot Level Badges ──────────────────────────────────────────── */
+.pot-level-badge {
+  display: inline-block;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.5rem;
+  padding: 0.15rem 0.35rem;
+  border-radius: 3px;
+  margin-left: 0.2rem;
+  color: #fff;
+  background: #555;
+}
+.pot-level-fire { background: #8b2500; color: #f0a030; }
+.pot-level-ice { background: #1a5a7a; color: #80d0f0; }
+.pot-level-earth { background: #4a3a20; color: #c09040; }
+.pot-level-wind { background: #1a5a4a; color: #70d0c0; }
+
+/* ── Minigame EXP display ──────────────────────────────────────── */
+.mg-exp-gained {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.7rem;
+  color: #f0c040;
+  margin: 0.6rem 0 0.3rem;
+}
+.mg-exp-none {
+  color: #666;
+  font-size: 0.6rem;
+}
+.mg-level-up {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.8rem;
+  color: #5aff5a;
+  margin: 0.3rem 0;
+  animation: mg-level-pulse 0.6s ease-in-out 3;
+}
+@keyframes mg-level-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+}
+.mg-exp-section {
+  margin: 0.4rem 0 0.6rem;
+  text-align: center;
+}
+.mg-pot-level {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.6rem;
+  color: #ccc;
+  display: block;
+  margin-bottom: 0.3rem;
+}
+.mg-exp-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+}
+.mg-exp-bar {
+  width: 140px;
+  height: 8px;
+  background: #333;
+  border: 1px solid #555;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.mg-exp-bar-fill {
+  height: 100%;
+  background: #f0c040;
+  transition: width 0.3s;
+}
+.mg-exp-numbers {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.5rem;
+  color: #aaa;
+}
+
+/* ── Garden detail pot EXP ─────────────────────────────────────── */
+.detail-pot-exp {
+  margin-top: 0.5rem;
+  text-align: center;
+}
+.detail-pot-exp p {
+  margin: 0 0 0.3rem;
+}
+.detail-exp-bar {
+  width: 100%;
+  max-width: 180px;
+  height: 8px;
+  background: #333;
+  border: 1px solid #555;
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 0.2rem auto;
+}
+.detail-exp-bar-fill {
+  height: 100%;
+  transition: width 0.3s;
+  background: #888;
+}
+.detail-exp-fill-fire { background: #e06030; }
+.detail-exp-fill-ice { background: #3a9ac0; }
+.detail-exp-fill-earth { background: #a08860; }
+.detail-exp-fill-wind { background: #3a9a8a; }
+.detail-exp-numbers {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.5rem;
+  color: #aaa;
+}

@@ -2,6 +2,7 @@
 
 import { RARITY, SPECIES } from './plant-data.js';
 import { WATERING_BONUS_VALUES, DAY_BONUS_VALUES } from './growth.js';
+import { potLevelFromExp } from './canvas-utils.js';
 
 // Seed rarity → plant rarity tier mapping
 export const SEED_TIER_MAP = {
@@ -138,36 +139,36 @@ export const ITEM_TYPES = {
   pot_fire: {
     name: 'Ember Crown',
     icon: '^',
-    description: 'Transforms a plant\'s pot into a blazing ember pot. Grants Runner immunity to fire obstacles.',
+    description: 'Transforms a plant\'s pot into a blazing ember pot.',
     getDescription() {
-      return 'Elemental pot: fire theme + Runner fire immunity.';
+      return 'Elemental pot: fire theme.';
     },
     value: 1,
   },
   pot_ice: {
     name: 'Frost Shard',
     icon: '\u2746',
-    description: 'Transforms a plant\'s pot into a frozen crystal pot. Grants Runner immunity to ice obstacles.',
+    description: 'Transforms a plant\'s pot into a frozen crystal pot.',
     getDescription() {
-      return 'Elemental pot: ice theme + Runner ice immunity.';
+      return 'Elemental pot: ice theme.';
     },
     value: 1,
   },
   pot_earth: {
     name: 'Stone Heart',
     icon: '\u25A0',
-    description: 'Transforms a plant\'s pot into a rugged stone pot. Grants Runner immunity to rock obstacles.',
+    description: 'Transforms a plant\'s pot into a rugged stone pot.',
     getDescription() {
-      return 'Elemental pot: earth theme + Runner rock immunity.';
+      return 'Elemental pot: earth theme.';
     },
     value: 1,
   },
   pot_wind: {
     name: 'Gale Feather',
     icon: '\u2248',
-    description: 'Transforms a plant\'s pot into an airy breeze pot. Grants Runner immunity to tornado obstacles.',
+    description: 'Transforms a plant\'s pot into an airy breeze pot.',
     getDescription() {
-      return 'Elemental pot: wind theme + Runner tornado immunity.';
+      return 'Elemental pot: wind theme.';
     },
     value: 1,
   },
@@ -445,6 +446,8 @@ export function combinePlants(state, itemId, plantId1, plantId2) {
     animated: !!(p1.animated || p2.animated),
     autoWater: false,
     potElement: p1.potElement || p2.potElement || undefined,
+    potExp: Math.max(p1.potExp || 0, p2.potExp || 0),
+    potLevel: potLevelFromExp(Math.max(p1.potExp || 0, p2.potExp || 0)),
   };
 
   // Remove source plants
