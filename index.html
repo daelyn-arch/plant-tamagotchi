@@ -60,6 +60,7 @@
         <button class="btn" id="gardenBtn">View Garden</button>
         <button class="btn" id="inventoryBtn">Inventory</button>
         <button class="btn" id="minigameBtn" style="display:none">Play</button>
+        <button class="btn" id="towerDefenseBtn" style="display:none">Stop the Bugs</button>
         <button class="btn" id="infoBtn">Info</button>
       </div>
     </div>
@@ -90,6 +91,22 @@
     <div id="galleryContainer"></div>
   </div>
 
+  <!-- Tower Defense Screen -->
+  <div id="towerDefenseScreen" class="screen td-screen">
+    <div id="tdContainer" class="td-container">
+      <canvas id="tdCanvas" width="640" height="640"></canvas>
+      <div class="td-hud" id="tdHud">
+        <span class="td-hud-wave">Wave 0</span>
+        <span class="td-hud-hp">HP 100/100</span>
+        <span class="td-hud-score">Score 0</span>
+        <span class="td-hud-level">Lv.1 (0%)</span>
+      </div>
+      <div class="minigame-start-overlay" id="tdOverlay">
+        <div id="tdOverlayContent"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Minigame Screen -->
   <div id="minigameScreen" class="screen minigame-screen">
     <div id="minigameContainer" class="minigame-container">
@@ -118,7 +135,7 @@
   <!-- Trivia Overlay -->
   <div id="triviaOverlay" class="trivia-overlay">
     <div class="trivia-card">
-      <h2 class="trivia-title">Plant Trivia!</h2>
+      <h2 class="trivia-title rainbow-text">Plant Trivia of the Day</h2>
       <p class="trivia-question" id="triviaQuestion"></p>
       <div class="trivia-choices" id="triviaChoices"></div>
       <div class="trivia-result" id="triviaResult" style="display:none">
@@ -141,6 +158,7 @@
       <button class="dev-btn" id="devUnlimitedWater">∞ Water</button>
       <button class="dev-btn" id="devInspector">Inspect</button>
       <button class="dev-btn" id="devPotExp">+100 Pot EXP</button>
+      <button class="dev-btn" id="devUnlockTD">Unlock TD</button>
     </div>
     <button class="dev-toggle" id="devToggle">DEV</button>
   </div>

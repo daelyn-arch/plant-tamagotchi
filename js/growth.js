@@ -1,7 +1,7 @@
 // Daily visit processing, streak logic, plant completion
 
 import { loadState, saveState, todayStr, isYesterday, daysBetween } from './state.js';
-import { pickSpecies, pickSpeciesByRarity, RARITY } from './plant-data.js';
+import { pickSpecies, pickSpeciesByRarity, SPECIES, RARITY } from './plant-data.js';
 import { createRng } from './rng.js';
 
 // Watering bonus values — applied when user waters, driven by streak
@@ -110,10 +110,19 @@ export function generateNewPlant(rng) {
 
 // Generate a plant from a seed item
 export function generatePlantFromSeed(seedItem, rng) {
-  const species = pickSpeciesByRarity(rng, seedItem.seedTier);
+  // Use pre-rolled species/days if available, otherwise roll fresh
+  let species, totalDays;
+  if (seedItem.seedSpecies) {
+    species = SPECIES.find(s => s.name === seedItem.seedSpecies);
+    if (!species) species = pickSpeciesByRarity(rng, seedItem.seedTier);
+    totalDays = seedItem.seedDays || rng.int(species.minDays, species.maxDays);
+  } else {
+    species = pickSpeciesByRarity(rng, seedItem.seedTier);
+    if (!species) return null;
+    totalDays = rng.int(species.minDays, species.maxDays);
+  }
   if (!species) return null;
   const seed = rng.int(1, 2147483647);
-  const totalDays = rng.int(species.minDays, species.maxDays);
 
   return {
     id: Date.now().toString(36) + seed.toString(36),

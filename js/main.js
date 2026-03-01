@@ -23,6 +23,7 @@ import { renderItemGallery, setOnItemGalleryBack } from './item-gallery.js';
 import { renderInfoPanel, setOnInfoBack } from './info-panel.js';
 import { SPECIES, RARITY } from './plant-data.js';
 import { startMinigame, stopMinigame } from './minigame.js';
+import { startTowerDefense, stopTowerDefense } from './tower-defense.js';
 import { potLevelFromExp } from './canvas-utils.js';
 
 let currentScreen = 'plant';
@@ -70,6 +71,11 @@ function init() {
     switchToMinigame();
   });
 
+  // Tower Defense button
+  document.getElementById('towerDefenseBtn').addEventListener('click', () => {
+    switchToTowerDefense();
+  });
+
   // Completion overlay "Move to Garden" button
   document.getElementById('moveToGardenBtn').addEventListener('click', handleMoveToGarden);
 
@@ -83,7 +89,9 @@ function init() {
     stopAllAnimators();
     currentScreen = 'plant';
     showScreen('plantScreen');
-    updatePlantView(loadState());
+    const s = loadState();
+    updatePlantView(s);
+    updateTdButton(s);
   });
   setOnItemGalleryBack(() => {
     switchToInventory();
@@ -91,11 +99,16 @@ function init() {
   setOnInfoBack(() => {
     currentScreen = 'plant';
     showScreen('plantScreen');
-    updatePlantView(loadState());
+    const s = loadState();
+    updatePlantView(s);
+    updateTdButton(s);
   });
 
   // Dev controls
   setupDevControls();
+
+  // Show/hide TD button
+  updateTdButton(state);
 
   showScreen('plantScreen');
 }
@@ -245,7 +258,9 @@ function switchToGarden() {
         stopAllAnimators();
         currentScreen = 'plant';
         showScreen('plantScreen');
-        updatePlantView(loadState());
+        const s = loadState();
+        updatePlantView(s);
+        updateTdButton(s);
       });
     }
     const galleryBtn = document.getElementById('galleryBtn');
@@ -303,8 +318,35 @@ function switchToMinigame() {
     stopMinigame();
     currentScreen = 'plant';
     showScreen('plantScreen');
+    const s = loadState();
+    updatePlantView(s);
+    updateTdButton(s);
+  });
+}
+
+function switchToTowerDefense() {
+  const state = loadState();
+  if (!state.stats.tdUnlocked) return;
+
+  const eligiblePlants = state.garden.filter(p => p.animated);
+  if (eligiblePlants.length === 0) return;
+
+  stopAllAnimators();
+  currentScreen = 'towerDefense';
+  showScreen('towerDefenseScreen');
+  startTowerDefense(eligiblePlants, () => {
+    stopTowerDefense();
+    currentScreen = 'plant';
+    showScreen('plantScreen');
     updatePlantView(loadState());
   });
+}
+
+function updateTdButton(state) {
+  const btn = document.getElementById('towerDefenseBtn');
+  if (!btn) return;
+  const hasEligible = state.garden && state.garden.some(p => p.animated);
+  btn.style.display = (state.stats.tdUnlocked && hasEligible) ? '' : 'none';
 }
 
 function switchToGallery() {
@@ -440,6 +482,15 @@ function setupDevControls() {
       showToast(`DEV: Inspector ${active ? 'ON' : 'OFF'}`, 'info');
     });
   }
+
+  document.getElementById('devUnlockTD')?.addEventListener('click', () => {
+    const state = loadState();
+    state.stats.tdUnlocked = true;
+    state.stats.bugKillsTotal = Math.max(state.stats.bugKillsTotal || 0, 10);
+    saveState(state);
+    updateTdButton(state);
+    showToast('DEV: Tower Defense unlocked', 'info');
+  });
 
   document.getElementById('devPotExp')?.addEventListener('click', () => {
     const state = loadState();

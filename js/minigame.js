@@ -58,7 +58,88 @@ let immuneFlashColor = null;
 let runExpGained = 0;
 let pendingLevelUp = null; // { oldLevel, newLevel, element }
 
+// Bug kill tracking (for TD unlock)
+let bugKillsThisRun = 0;
+let bugDialogues = [];  // active dialogue bubbles on screen
+
+// Ability state (elemental pot lv2+)
+let abilityCharge = 0;
+let abilityMaxCharge = 0;
+let abilityReady = false;
+let abilityElement = null;
+let abilityLevel = 0;
+let abilityDuckTriggered = false; // debounce for fire/ice duck activation
+
+// Fire ability
+let fireSafetyTimer = 0;  // frames remaining where no obstacles spawn (180 = 3s)
+let fireWaveFrame = 0;     // animation countdown
+
+// Ice ability
+let iceSlowTimer = 0;      // frames remaining for 50% slow (600 = 10s)
+
+// Earth ability
+let earthArmorActive = false;
+let earthArmorFlash = 0;    // visual flash when armor breaks
+
+// Wind ability
+let windBugImmune = false;
+let windUsedDoubleJump = false;
+
+// Unlock cutscene state
+let cutsceneActive = false;
+let cutscenePhase = 0;
+let cutsceneTimer = 0;
+let cutsceneBugs = [];
+let cutsceneBossBug = null;
+let cutscenePlayerX = 0;
+
+const BUG_KILL_MESSAGES = [
+  "Be careful... Mother won't be happy.",
+  "The hive remembers...",
+  "You'll regret this...",
+  "They were just scouts...",
+  "Something stirs beneath the soil...",
+  "She is watching you...",
+  "The swarm grows restless...",
+  "You cannot stop what is coming...",
+  "Every kill awakens another hundred...",
+  "The queen knows your scent now...",
+];
+
+function addBugDialogue(x, y) {
+  const msg = BUG_KILL_MESSAGES[Math.floor(Math.random() * BUG_KILL_MESSAGES.length)];
+  bugDialogues.push({ msg, x, y: y - 10, alpha: 1.0, life: 120 });
+}
+
+// Ability cost lookup: [element][level] -> maxCharge
+const ABILITY_COSTS = {
+  fire:  { 1: 15, 2: 10, 3: 5 },
+  ice:   { 1: 15, 2: 10, 3: 5 },
+  earth: { 1: 5,  2: 3,  3: 1 },
+  wind:  { 1: 5,  2: 3,  3: 1 },
+};
+
 // ── Public API ─────────────────────────────────────────────────────
+
+// Debug helpers (accessed from tests)
+window.__debugMinigameState = () => ({
+  running, gameStarted, abilityElement, abilityLevel, abilityMaxCharge,
+  abilityCharge, abilityReady, fireSafetyTimer, iceSlowTimer,
+  earthArmorActive, windBugImmune, windUsedDoubleJump,
+  selectedPlant: selectedPlant ? {
+    species: selectedPlant.species,
+    potElement: selectedPlant.potElement,
+    potExp: selectedPlant.potExp,
+    potLevel: selectedPlant.potLevel,
+  } : null,
+});
+window.__debugSetAbilityCharge = (val) => {
+  abilityCharge = val;
+  if (abilityCharge >= abilityMaxCharge) {
+    abilityCharge = abilityMaxCharge;
+    abilityReady = true;
+  }
+};
 
 export function startMinigame(plants, onBack) {
   onBackCallback = onBack;
@@ -184,6 +265,35 @@ function resetGame() {
   immuneFlashColor = null;
   runExpGained = 0;
   pendingLevelUp = null;
+  bugKillsThisRun = 0;
+  bugDialogues = [];
+  cutsceneActive = false;
+
+  // Reset ability state
+  abilityCharge = 0;
+  abilityMaxCharge = 0;
+  abilityReady = false;
+  abilityElement = null;
+  abilityLevel = 0;
+  abilityDuckTriggered = false;
+  fireSafetyTimer = 0;
+  fireWaveFrame = 0;
+  iceSlowTimer = 0;
+  earthArmorActive = false;
+  earthArmorFlash = 0;
+  windBugImmune = false;
+  windUsedDoubleJump = false;
+
+  // Initialize ability if pot is level 2+
+  if (selectedPlant) {
+    const potLevel = selectedPlant.potLevel || 0;
+    const potElement = selectedPlant.potElement;
+    if (potLevel >= 1 && potElement && ABILITY_COSTS[potElement]) {
+      abilityElement = potElement;
+      abilityLevel = potLevel;
+      abilityMaxCharge = ABILITY_COSTS[potElement][Math.min(potLevel, 3)] || 0;
+    }
+  }
 
   clouds = [];
   for (let i = 0; i < CLOUD_COUNT; i++) {
@@ -222,9 +332,60 @@ function gameLoop(timestamp) {
 function update() {
   frameCount++;
 
-  // Speed up
+  // Speed up (ice slow: accel still applies but at reduced base)
+  if (iceSlowTimer > 0) {
+    iceSlowTimer--;
+    if (iceSlowTimer === 0) {
+      // Ice expired: let current speed stand (already accel'd from slow base)
+    }
+  }
   if (speed < MAX_SPEED) {
     speed = Math.min(MAX_SPEED, speed + SPEED_ACCEL);
+  }
+
+  // Fire safety timer: suppress obstacle spawning
+  if (fireSafetyTimer > 0) fireSafetyTimer--;
+  if (fireWaveFrame > 0) fireWaveFrame--;
+  if (earthArmorFlash > 0) earthArmorFlash--;
+
+  // Duck ability activation (fire / ice) with debounce
+  if (player.ducking && abilityReady && !abilityDuckTriggered) {
+    if (abilityElement === 'fire') {
+      // Flame wave: destroy all obstacles + 3s no-spawn safety
+      // Count bugs killed by fire wave
+      for (const obs of obstacles) {
+        if (obs.type === 'bug') {
+          bugKillsThisRun++;
+          addBugDialogue(obs.x, obs.y);
+        }
+      }
+      obstacles.length = 0;
+      fireSafetyTimer = 180;
+      fireWaveFrame = 20;
+      abilityCharge = 0;
+      abilityReady = false;
+      abilityDuckTriggered = true;
+    } else if (abilityElement === 'ice') {
+      // Ice slow: 50% speed for 10s
+      speed *= 0.5;
+      iceSlowTimer = 600;
+      abilityCharge = 0;
+      abilityReady = false;
+      abilityDuckTriggered = true;
+    }
+  }
+  // Clear duck debounce when duck released
+  if (!player.ducking) abilityDuckTriggered = false;
+
+  // Wind: clear double jump state on landing
+  if (windUsedDoubleJump && player.grounded) {
+    windBugImmune = false;
+    windUsedDoubleJump = false;
+  }
+
+  // Wind: bug immunity while ability is charged (even before using double jump)
+  if (abilityReady && abilityElement === 'wind') {
+    windBugImmune = true;
   }
 
   // Distance & score
@@ -235,13 +396,27 @@ function update() {
   document.getElementById('minigameScore').textContent = score;
 
   // Player physics
-  if (player.ducking) {
-    // Stay on ground while ducking
-    player.y = GROUND_Y - Math.round(playerH * DUCK_HEIGHT_RATIO);
-    player.grounded = true;
-    player.jumping = false;
+  if (player.ducking && (player.grounded || (!player.grounded && windUsedDoubleJump))) {
+    if (!player.grounded && windUsedDoubleJump) {
+      // Wind glide fast-drop: slam to ground immediately
+      player.y = GROUND_Y - Math.round(playerH * DUCK_HEIGHT_RATIO);
+      player.vy = 0;
+      player.grounded = true;
+      player.jumping = false;
+      windBugImmune = false;
+      windUsedDoubleJump = false;
+    } else {
+      // Normal duck on ground
+      player.y = GROUND_Y - Math.round(playerH * DUCK_HEIGHT_RATIO);
+      player.grounded = true;
+      player.jumping = false;
+    }
   } else if (player.jumping || !player.grounded) {
-    player.vy += GRAVITY;
+    // Wind glide: reduced gravity after double jump
+    const grav = windUsedDoubleJump ? GRAVITY * 0.25 : GRAVITY;
+    player.vy += grav;
+    // Cap fall speed during wind glide
+    if (windUsedDoubleJump && player.vy > 1.5) player.vy = 1.5;
     player.y += player.vy;
     const groundLevel = GROUND_Y - playerH;
     if (player.y >= groundLevel) {
@@ -254,15 +429,17 @@ function update() {
     player.y = GROUND_Y - playerH;
   }
 
-  // Spawn obstacles
-  spawnTimer -= speed;
-  if (spawnTimer <= 0) {
-    spawnObstacle();
-    // Gap shrinks as speed increases
-    const gapRange = SPAWN_MAX_GAP - SPAWN_MIN_GAP;
-    const speedFactor = (speed - MIN_SPEED) / (MAX_SPEED - MIN_SPEED);
-    const gap = SPAWN_MAX_GAP - gapRange * speedFactor * 0.5;
-    spawnTimer = gap + Math.random() * 30;
+  // Spawn obstacles (suppressed during fire safety timer)
+  if (fireSafetyTimer <= 0) {
+    spawnTimer -= speed;
+    if (spawnTimer <= 0) {
+      spawnObstacle();
+      // Gap shrinks as speed increases
+      const gapRange = SPAWN_MAX_GAP - SPAWN_MIN_GAP;
+      const speedFactor = (speed - MIN_SPEED) / (MAX_SPEED - MIN_SPEED);
+      const gap = SPAWN_MAX_GAP - gapRange * speedFactor * 0.5;
+      spawnTimer = gap + Math.random() * 30;
+    }
   }
 
   // Move obstacles
@@ -286,6 +463,9 @@ function update() {
 
   // Scroll ground
   groundOffset = (groundOffset + speed) % 8;
+
+  // Update bug dialogues
+  updateBugDialogues();
 
   // Check collisions
   if (checkCollisions()) {
@@ -378,10 +558,29 @@ function checkCollisions() {
         if (!obs.expCounted) {
           obs.expCounted = true;
           runExpGained++;
+          // Charge ability if element matches
+          if (abilityMaxCharge > 0 && abilityElement === potElement) {
+            if (abilityCharge < abilityMaxCharge) {
+              abilityCharge++;
+            }
+            if (abilityCharge >= abilityMaxCharge) {
+              abilityReady = true;
+              abilityCharge = abilityMaxCharge;
+              // Earth: auto-activate armor immediately when charged
+              if (abilityElement === 'earth' && !earthArmorActive) {
+                earthArmorActive = true;
+                abilityCharge = 0;
+                abilityReady = false;
+              }
+            }
+          }
         }
       }
       continue;
     }
+
+    // Wind bug immunity: skip bug collisions during double jump
+    if (windBugImmune && obs.type === 'bug') continue;
 
     const ox1 = obs.x + COLLISION_INSET;
     const oy1 = obs.y + COLLISION_INSET;
@@ -390,6 +589,24 @@ function checkCollisions() {
 
     // AABB overlap
     if (px1 < ox2 && px2 > ox1 && py1 < oy2 && py2 > oy1) {
+      // Earth armor: absorb one hit
+      if (earthArmorActive) {
+        earthArmorActive = false;
+        earthArmorFlash = 20;
+        // Track bug kill if it was a bug
+        if (obs.type === 'bug') {
+          bugKillsThisRun++;
+          addBugDialogue(obs.x, obs.y);
+        }
+        // Remove this obstacle
+        obstacles.splice(obstacles.indexOf(obs), 1);
+        return false;
+      }
+      // Track bug kill on lethal collision
+      if (obs.type === 'bug') {
+        bugKillsThisRun++;
+        addBugDialogue(obs.x, obs.y);
+      }
       return true;
     }
   }
@@ -448,8 +665,67 @@ function render() {
     }
   }
 
+  // Ice slow overlay
+  if (iceSlowTimer > 0) {
+    ctx.globalAlpha = 0.12;
+    ctx.fillStyle = '#60c0ff';
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+
+  // Fire wave animation
+  if (fireWaveFrame > 0) {
+    const progress = 1 - (fireWaveFrame / 20); // 0→1 as frames count down
+    const waveX = progress * W;
+    const waveW = 40;
+    ctx.globalAlpha = 0.6 * (fireWaveFrame / 20);
+    // Flame sweep expanding across screen
+    const grad = ctx.createLinearGradient(waveX - waveW, 0, waveX, 0);
+    grad.addColorStop(0, 'rgba(255, 68, 0, 0)');
+    grad.addColorStop(0.3, '#ff6600');
+    grad.addColorStop(0.6, '#ffaa00');
+    grad.addColorStop(1, 'rgba(255, 221, 0, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, GROUND_Y - 30, waveX, 35);
+    ctx.globalAlpha = 1;
+  }
+
   // Player
   renderPlayer(ctx);
+
+  // Earth armor icon near player
+  if (earthArmorActive) {
+    const shieldX = Math.round(player.x) - 6;
+    const shieldY = Math.round(player.y) + 2;
+    // Small rock/shield icon
+    ctx.fillStyle = '#8a7a50';
+    ctx.fillRect(shieldX, shieldY, 5, 6);
+    ctx.fillStyle = '#a09060';
+    ctx.fillRect(shieldX + 1, shieldY + 1, 3, 4);
+    ctx.fillStyle = '#c0b080';
+    ctx.fillRect(shieldX + 2, shieldY + 2, 1, 2);
+  }
+
+  // Earth armor break flash
+  if (earthArmorFlash > 0) {
+    ctx.globalAlpha = earthArmorFlash / 20 * 0.4;
+    ctx.fillStyle = '#c0a060';
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+
+  // Wind double-jump trail
+  if (windUsedDoubleJump && !player.grounded) {
+    const trailX = Math.round(player.x) + Math.round(playerW / 2);
+    const trailY = Math.round(player.y) + playerH;
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = '#80d0c0';
+    for (let i = 0; i < 4; i++) {
+      const ty = trailY + i * 4 + (frameCount % 3);
+      ctx.fillRect(trailX - 1 + (i % 2) * 2, ty, 2, 2);
+    }
+    ctx.globalAlpha = 1;
+  }
 
   // Immunity flash overlay on player
   if (immuneFlash > 0) {
@@ -474,6 +750,57 @@ function render() {
     }
     ctx.globalAlpha = 1;
   }
+
+  // Bug kill dialogues
+  renderBugDialogues(ctx);
+
+  // Ability charge bar (top-right, only if ability active)
+  if (abilityMaxCharge > 0) {
+    renderAbilityBar(ctx);
+  }
+}
+
+const ABILITY_BAR_COLORS = {
+  fire: '#e06020',
+  ice: '#60c0e0',
+  earth: '#a08860',
+  wind: '#70d0c0',
+};
+
+function renderAbilityBar(ctx) {
+  const barW = 50;
+  const barH = 5;
+  const barX = W - barW - 6;
+  const barY = 6;
+  const fill = abilityCharge / abilityMaxCharge;
+  const color = ABILITY_BAR_COLORS[abilityElement] || '#888';
+
+  // Background
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+  ctx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
+
+  // Fill
+  ctx.fillStyle = color;
+  ctx.fillRect(barX, barY, Math.round(barW * fill), barH);
+
+  // Ready state: pulsing bright outline
+  if (abilityReady) {
+    const pulse = 0.5 + 0.5 * Math.sin(frameCount * 0.15);
+    ctx.globalAlpha = 0.4 + pulse * 0.6;
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(barX - 1.5, barY - 1.5, barW + 3, barH + 3);
+    ctx.globalAlpha = 1;
+
+    // "RDY" label
+    ctx.fillStyle = '#fff';
+    ctx.font = '5px monospace';
+    ctx.fillText('RDY', barX - 20, barY + barH);
+  }
+
+  // Element icon (small colored dot)
+  ctx.fillStyle = color;
+  ctx.fillRect(barX - 5, barY, 3, barH);
 }
 
 function renderFire(ctx, obs) {
@@ -689,6 +1016,11 @@ function gameOver() {
     state.stats.minigameHighScore = score;
   }
 
+  // Persist bug kills
+  if (bugKillsThisRun > 0) {
+    state.stats.bugKillsTotal = (state.stats.bugKillsTotal || 0) + bugKillsThisRun;
+  }
+
   // Persist pot EXP
   if (selectedPlant && selectedPlant.potElement && runExpGained > 0) {
     const gardenPlant = state.garden.find(p => p.id === selectedPlant.id);
@@ -703,11 +1035,267 @@ function gameOver() {
     }
   }
 
-  if (isNewHigh || (selectedPlant && selectedPlant.potElement && runExpGained > 0)) {
-    saveState(state);
+  saveState(state);
+
+  // Check if unlock cutscene should trigger
+  if (state.stats.bugKillsTotal >= 10 && !state.stats.tdUnlocked) {
+    startUnlockCutscene();
+    return;
   }
 
   showGameOver(score, state.stats.minigameHighScore, isNewHigh);
+}
+
+// ── Bug Dialogue Rendering ─────────────────────────────────────────
+
+function updateBugDialogues() {
+  for (let i = bugDialogues.length - 1; i >= 0; i--) {
+    const d = bugDialogues[i];
+    d.life--;
+    d.y -= 0.3;
+    d.alpha = Math.min(1, d.life / 30);
+    if (d.life <= 0) bugDialogues.splice(i, 1);
+  }
+}
+
+function renderBugDialogues(ctx) {
+  for (const d of bugDialogues) {
+    ctx.save();
+    ctx.globalAlpha = d.alpha;
+    ctx.font = '5px monospace';
+    ctx.fillStyle = '#ff4444';
+    const textW = ctx.measureText(d.msg).width;
+    const bx = Math.max(2, Math.min(W - textW - 6, d.x - textW / 2));
+    const by = Math.max(12, d.y);
+    // Speech bubble background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(bx - 2, by - 8, textW + 4, 10);
+    ctx.fillStyle = '#ff6666';
+    ctx.fillText(d.msg, bx, by);
+    ctx.restore();
+  }
+}
+
+// ── Unlock Cutscene ────────────────────────────────────────────────
+
+function startUnlockCutscene() {
+  cutsceneActive = true;
+  cutscenePhase = 0;
+  cutsceneTimer = 0;
+  cutsceneBugs = [];
+  cutsceneBossBug = null;
+  cutscenePlayerX = player ? player.x : 16;
+
+  document.getElementById('minigameHud').style.display = 'none';
+  const overlay = document.getElementById('minigameOverlay');
+  overlay.classList.add('hidden');
+
+  rafId = requestAnimationFrame(cutsceneLoop);
+}
+
+function cutsceneLoop() {
+  if (!cutsceneActive) return;
+
+  cutsceneTimer++;
+  updateCutscene();
+  renderCutscene();
+
+  rafId = requestAnimationFrame(cutsceneLoop);
+}
+
+function updateCutscene() {
+  // Phase 0: Rumble (0-120 frames, ~2s)
+  // Phase 1: Bug swarm (120-300 frames, ~3s)
+  // Phase 2: Boss bug (300-420 frames, ~2s)
+  // Phase 3: Plant flees (420-540 frames, ~2s)
+  // Phase 4: Fade to black (540-630 frames, ~1.5s)
+
+  if (cutsceneTimer === 120) cutscenePhase = 1;
+  if (cutsceneTimer === 300) cutscenePhase = 2;
+  if (cutsceneTimer === 420) cutscenePhase = 3;
+  if (cutsceneTimer === 540) cutscenePhase = 4;
+
+  // Phase 1: spawn bugs from all sides
+  if (cutscenePhase === 1 && cutsceneTimer % 3 === 0) {
+    const side = Math.floor(Math.random() * 4);
+    let bx, by;
+    if (side === 0) { bx = Math.random() * W; by = -10; }
+    else if (side === 1) { bx = W + 10; by = Math.random() * H; }
+    else if (side === 2) { bx = Math.random() * W; by = H + 10; }
+    else { bx = -10; by = Math.random() * H; }
+    const angle = Math.atan2(H / 2 - by, W / 2 - bx);
+    cutsceneBugs.push({
+      x: bx, y: by,
+      vx: Math.cos(angle) * (0.5 + Math.random() * 0.5),
+      vy: Math.sin(angle) * (0.5 + Math.random() * 0.5),
+      frame: Math.floor(Math.random() * 20),
+    });
+  }
+
+  // Move cutscene bugs
+  for (const b of cutsceneBugs) {
+    b.x += b.vx;
+    b.y += b.vy;
+    b.frame++;
+  }
+
+  // Phase 2: Boss enters from right
+  if (cutscenePhase === 2 && !cutsceneBossBug) {
+    cutsceneBossBug = { x: W + 20, y: H / 2 - 30, frame: 0 };
+  }
+  if (cutsceneBossBug) {
+    cutsceneBossBug.frame++;
+    if (cutsceneBossBug.x > W / 2 - 40) {
+      cutsceneBossBug.x -= 0.8;
+    }
+  }
+
+  // Phase 3: Player flees left
+  if (cutscenePhase === 3) {
+    cutscenePlayerX -= 3;
+  }
+
+  // Phase 4: End cutscene
+  if (cutsceneTimer >= 630) {
+    endCutscene();
+  }
+}
+
+function renderCutscene() {
+  // Base scene
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, W, H);
+  const grad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+  grad.addColorStop(0, '#1a1a2e');
+  grad.addColorStop(1, '#2d2d44');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, GROUND_Y);
+  ctx.fillStyle = '#3a2e1e';
+  ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
+  ctx.fillStyle = '#5a4e3e';
+  ctx.fillRect(0, GROUND_Y, W, 2);
+
+  // Phase 0: Rumble + red tint
+  if (cutscenePhase === 0) {
+    const intensity = Math.sin(cutsceneTimer * 0.5) * 3;
+    ctx.save();
+    ctx.translate(intensity, Math.sin(cutsceneTimer * 0.7) * 2);
+    // Red edge tint
+    ctx.fillStyle = `rgba(255, 0, 0, ${0.05 + 0.05 * Math.sin(cutsceneTimer * 0.3)})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // Draw player (phases 0-3)
+  if (cutscenePhase <= 3 && sprites.normal) {
+    const px = cutscenePhase === 3 ? cutscenePlayerX : 16;
+    const py = GROUND_Y - playerH;
+    ctx.drawImage(sprites.normal, Math.round(px), py);
+
+    // Motion trail in phase 3
+    if (cutscenePhase === 3) {
+      for (let i = 1; i <= 4; i++) {
+        ctx.globalAlpha = 0.15 / i;
+        ctx.drawImage(sprites.normal, Math.round(px + i * 12), py);
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // Draw cutscene bugs
+  for (const b of cutsceneBugs) {
+    renderBug(ctx, { x: b.x, y: b.y, w: 20, h: 12, frame: b.frame, type: 'bug' });
+  }
+
+  // Draw boss bug
+  if (cutsceneBossBug) {
+    ctx.save();
+    const bx = Math.round(cutsceneBossBug.x);
+    const by = Math.round(cutsceneBossBug.y);
+    const f = cutsceneBossBug.frame;
+
+    // 4x scaled boss bug body
+    ctx.fillStyle = '#1a0a00';
+    ctx.fillRect(bx + 24, by + 16, 40, 24); // thorax
+    ctx.fillRect(bx + 8, by + 16, 16, 16); // head
+
+    // Armored shell highlights
+    ctx.fillStyle = '#3a2a1a';
+    ctx.fillRect(bx + 26, by + 18, 36, 20);
+    ctx.fillStyle = '#4a3a2a';
+    ctx.fillRect(bx + 30, by + 20, 28, 16);
+
+    // Glowing red eyes
+    ctx.fillStyle = '#ff0000';
+    ctx.fillRect(bx + 8, by + 16, 6, 6);
+    ctx.fillStyle = '#ff4444';
+    ctx.fillRect(bx + 10, by + 18, 2, 2);
+
+    // Mandibles
+    ctx.fillStyle = '#2a1a0a';
+    ctx.fillRect(bx, by + 24, 8, 4);
+    ctx.fillRect(bx, by + 16, 8, 4);
+
+    // Wings
+    ctx.fillStyle = 'rgba(180, 200, 220, 0.5)';
+    const wingUp = (f % 8) < 4;
+    if (wingUp) {
+      ctx.fillRect(bx + 32, by, 32, 16);
+    } else {
+      ctx.fillRect(bx + 32, by + 36, 32, 16);
+    }
+
+    ctx.restore();
+  }
+
+  if (cutscenePhase === 0) {
+    ctx.restore();
+  }
+
+  // Phase 4: Fade to black with text
+  if (cutscenePhase === 4) {
+    const fadeProgress = (cutsceneTimer - 540) / 90;
+    ctx.fillStyle = `rgba(0, 0, 0, ${Math.min(1, fadeProgress)})`;
+    ctx.fillRect(0, 0, W, H);
+
+    if (fadeProgress > 0.4) {
+      ctx.globalAlpha = Math.min(1, (fadeProgress - 0.4) / 0.3);
+      ctx.fillStyle = '#ff4444';
+      ctx.font = '7px monospace';
+      const text = 'Something stirs in the garden...';
+      const tw = ctx.measureText(text).width;
+      ctx.fillText(text, (W - tw) / 2, H / 2);
+      ctx.globalAlpha = 1;
+    }
+  }
+}
+
+function endCutscene() {
+  cutsceneActive = false;
+  if (rafId) {
+    cancelAnimationFrame(rafId);
+    rafId = null;
+  }
+
+  const state = loadState();
+  state.stats.tdUnlocked = true;
+  saveState(state);
+
+  // Return to plant screen and show toast
+  if (onBackCallback) {
+    onBackCallback();
+  }
+  // Show toast after a short delay to let screen transition happen
+  setTimeout(() => {
+    const toastEl = document.createElement('div');
+    toastEl.className = 'toast toast-success';
+    toastEl.textContent = 'New game mode unlocked: Stop the Bugs!';
+    document.body.appendChild(toastEl);
+    requestAnimationFrame(() => toastEl.classList.add('toast-visible'));
+    setTimeout(() => {
+      toastEl.classList.remove('toast-visible');
+      setTimeout(() => toastEl.remove(), 300);
+    }, 4000);
+  }, 500);
 }
 
 // ── Overlays ───────────────────────────────────────────────────────
@@ -935,6 +1523,13 @@ function doJump() {
     player.vy = JUMP_VEL;
     player.jumping = true;
     player.grounded = false;
+  } else if (!player.grounded && abilityReady && abilityElement === 'wind' && !windUsedDoubleJump) {
+    // Wind double jump
+    player.vy = JUMP_VEL;
+    windBugImmune = true;
+    windUsedDoubleJump = true;
+    abilityCharge = 0;
+    abilityReady = false;
   }
 }
 

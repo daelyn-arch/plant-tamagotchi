@@ -1,14 +1,15 @@
 // Item definitions, drop logic, and item utility functions
 
-import { RARITY, SPECIES } from './plant-data.js';
+import { RARITY, SPECIES, pickSpeciesByRarity } from './plant-data.js';
 import { WATERING_BONUS_VALUES, DAY_BONUS_VALUES } from './growth.js';
 import { potLevelFromExp } from './canvas-utils.js';
+import { createRng } from './rng.js';
 
-// Seed rarity → plant rarity tier mapping
+// Seed rarity → plant rarity tier mapping (seeds grow their own rarity)
 export const SEED_TIER_MAP = {
-  [RARITY.COMMON]: RARITY.RARE,
-  [RARITY.UNCOMMON]: RARITY.RARE,
-  [RARITY.RARE]: RARITY.EPIC,
+  [RARITY.COMMON]: RARITY.COMMON,
+  [RARITY.UNCOMMON]: RARITY.UNCOMMON,
+  [RARITY.RARE]: RARITY.RARE,
   [RARITY.EPIC]: RARITY.EPIC,
   [RARITY.LEGENDARY]: RARITY.LEGENDARY,
 };
@@ -179,9 +180,28 @@ export function createItem(type, rarity) {
   const def = ITEM_TYPES[type];
   if (!def) return null;
 
+  // Life Spark is always Legendary
+  if (type === 'animate') rarity = RARITY.LEGENDARY;
+
   const value = type === 'garden_upgrade'
     ? 1 + (UPGRADE_PCT_BY_RARITY[rarity] || 5) / 100
     : def.value;
+
+  // Pre-roll species and days for seeds
+  let seedTier, seedSpecies, seedDays;
+  if (type === 'seed') {
+    seedTier = SEED_TIER_MAP[rarity];
+    const rng = createRng((Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0);
+    const species = pickSpeciesByRarity(rng, seedTier);
+    if (species) {
+      seedSpecies = species.name;
+      seedDays = rng.int(species.minDays, species.maxDays);
+    }
+  }
+
+  const description = type === 'seed' && seedSpecies
+    ? `Plant to grow a ${seedTier} ${seedSpecies} (${seedDays} days)`
+    : def.getDescription ? def.getDescription(rarity) : def.description;
 
   return {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
@@ -189,11 +209,13 @@ export function createItem(type, rarity) {
     name: def.name,
     icon: def.icon,
     rarity,
-    description: def.getDescription ? def.getDescription(rarity) : def.description,
+    description,
     value,
     duration: DURATION_BY_RARITY[rarity],
     combineGate: type === 'plant_combine' ? COMBINE_RARITY_GATE[rarity] : undefined,
-    seedTier: type === 'seed' ? SEED_TIER_MAP[rarity] : undefined,
+    seedTier: seedTier || undefined,
+    seedSpecies: seedSpecies || undefined,
+    seedDays: seedDays || undefined,
   };
 }
 
@@ -203,31 +225,31 @@ const DROP_TABLES = {
     chance: 0.10,
     secondChance: 0,
     maxItemRarity: 0, // Common only
-    weights: { watering_boost: 30, day_boost: 10, art_reroll: 20, auto_water: 5, garden_upgrade: 3, plant_combine: 2, animate: 3, pot_fire: 2, pot_ice: 2, pot_earth: 2, pot_wind: 2 },
+    weights: { watering_boost: 30, day_boost: 10, art_reroll: 20, auto_water: 5, garden_upgrade: 3, plant_combine: 2, pot_fire: 2, pot_ice: 2, pot_earth: 2, pot_wind: 2 },
   },
   [RARITY.UNCOMMON]: {
     chance: 0.25,
     secondChance: 0,
     maxItemRarity: 1, // Up to Uncommon
-    weights: { watering_boost: 25, day_boost: 15, art_reroll: 20, auto_water: 10, garden_upgrade: 5, plant_combine: 5, animate: 5, pot_fire: 2, pot_ice: 2, pot_earth: 2, pot_wind: 2 },
+    weights: { watering_boost: 25, day_boost: 15, art_reroll: 20, auto_water: 10, garden_upgrade: 5, plant_combine: 5, pot_fire: 2, pot_ice: 2, pot_earth: 2, pot_wind: 2 },
   },
   [RARITY.RARE]: {
     chance: 0.50,
     secondChance: 0,
     maxItemRarity: 2, // Up to Rare
-    weights: { watering_boost: 20, day_boost: 20, art_reroll: 15, auto_water: 15, garden_upgrade: 10, plant_combine: 10, animate: 5, pot_fire: 3, pot_ice: 3, pot_earth: 3, pot_wind: 3 },
+    weights: { watering_boost: 20, day_boost: 20, art_reroll: 15, auto_water: 15, garden_upgrade: 10, plant_combine: 10, pot_fire: 3, pot_ice: 3, pot_earth: 3, pot_wind: 3 },
   },
   [RARITY.EPIC]: {
     chance: 0.75,
     secondChance: 0.25,
     maxItemRarity: 3, // Up to Epic
-    weights: { watering_boost: 15, day_boost: 20, art_reroll: 10, auto_water: 15, garden_upgrade: 15, plant_combine: 15, animate: 5, pot_fire: 3, pot_ice: 3, pot_earth: 3, pot_wind: 3 },
+    weights: { watering_boost: 15, day_boost: 20, art_reroll: 10, auto_water: 15, garden_upgrade: 15, plant_combine: 15, pot_fire: 3, pot_ice: 3, pot_earth: 3, pot_wind: 3 },
   },
   [RARITY.LEGENDARY]: {
     chance: 1.0,
     secondChance: 0.50,
     maxItemRarity: 4, // Any rarity
-    weights: { watering_boost: 10, day_boost: 15, art_reroll: 10, auto_water: 15, garden_upgrade: 20, plant_combine: 20, animate: 5, pot_fire: 4, pot_ice: 4, pot_earth: 4, pot_wind: 4 },
+    weights: { watering_boost: 10, day_boost: 15, art_reroll: 10, auto_water: 15, garden_upgrade: 20, plant_combine: 20, pot_fire: 4, pot_ice: 4, pot_earth: 4, pot_wind: 4 },
   },
 };
 
@@ -276,6 +298,11 @@ export function rollItemDrop(plantRarity, rng) {
     const itemType = pickItemType(rng, table.weights);
     const itemRarity = pickItemRarity(rng, table.maxItemRarity);
     items.push(createItem(itemType, itemRarity));
+  }
+
+  // Life Spark — flat 10% chance from any plant (always Legendary)
+  if (rng.random() < 0.10) {
+    items.push(createItem('animate', RARITY.LEGENDARY));
   }
 
   return items;

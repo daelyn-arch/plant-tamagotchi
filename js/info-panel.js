@@ -5,11 +5,11 @@ import { WATERING_BONUS_VALUES, DAY_BONUS_VALUES } from './growth.js';
 import { ITEM_TYPES, RARITY_ORDER, SEED_TIER_MAP, SEED_DROP_WEIGHTS } from './items.js';
 
 const DROP_TABLES = {
-  [RARITY.COMMON]:    { chance: '10%', second: '0%',  maxRarity: 'Common',    weights: { watering_boost: 30, day_boost: 10, art_reroll: 20, auto_water: 5, garden_upgrade: 3, plant_combine: 2, animate: 3 } },
-  [RARITY.UNCOMMON]:  { chance: '25%', second: '0%',  maxRarity: 'Uncommon',  weights: { watering_boost: 25, day_boost: 15, art_reroll: 20, auto_water: 10, garden_upgrade: 5, plant_combine: 5, animate: 5 } },
-  [RARITY.RARE]:      { chance: '50%', second: '0%',  maxRarity: 'Rare',      weights: { watering_boost: 20, day_boost: 20, art_reroll: 15, auto_water: 15, garden_upgrade: 10, plant_combine: 10, animate: 5 } },
-  [RARITY.EPIC]:      { chance: '75%', second: '25%', maxRarity: 'Epic',      weights: { watering_boost: 15, day_boost: 20, art_reroll: 10, auto_water: 15, garden_upgrade: 15, plant_combine: 15, animate: 5 } },
-  [RARITY.LEGENDARY]: { chance: '100%', second: '50%', maxRarity: 'Legendary', weights: { watering_boost: 10, day_boost: 15, art_reroll: 10, auto_water: 15, garden_upgrade: 20, plant_combine: 20, animate: 5 } },
+  [RARITY.COMMON]:    { chance: '10%', second: '0%',  maxRarity: 'Common',    weights: { watering_boost: 30, day_boost: 10, art_reroll: 20, auto_water: 5, garden_upgrade: 3, plant_combine: 2 } },
+  [RARITY.UNCOMMON]:  { chance: '25%', second: '0%',  maxRarity: 'Uncommon',  weights: { watering_boost: 25, day_boost: 15, art_reroll: 20, auto_water: 10, garden_upgrade: 5, plant_combine: 5 } },
+  [RARITY.RARE]:      { chance: '50%', second: '0%',  maxRarity: 'Rare',      weights: { watering_boost: 20, day_boost: 20, art_reroll: 15, auto_water: 15, garden_upgrade: 10, plant_combine: 10 } },
+  [RARITY.EPIC]:      { chance: '75%', second: '25%', maxRarity: 'Epic',      weights: { watering_boost: 15, day_boost: 20, art_reroll: 10, auto_water: 15, garden_upgrade: 15, plant_combine: 15 } },
+  [RARITY.LEGENDARY]: { chance: '100%', second: '50%', maxRarity: 'Legendary', weights: { watering_boost: 10, day_boost: 15, art_reroll: 10, auto_water: 15, garden_upgrade: 20, plant_combine: 20 } },
 };
 
 const ITEM_RARITY_WEIGHTS = [
@@ -65,7 +65,6 @@ function buildHTML() {
       <td class="rarity-${r.toLowerCase()}">${r}</td>
       <td>${w}</td>
       <td>${pct(w, seedTotalWeight)}</td>
-      <td class="rarity-${SEED_TIER_MAP[r].toLowerCase()}">${SEED_TIER_MAP[r]}</td>
     </tr>`;
   }).join('');
 
@@ -73,12 +72,12 @@ function buildHTML() {
     `<p class="info-note">Wild plants are always <b>Common</b> or <b>Uncommon</b>. To grow Rare, Epic, or Legendary plants, you need seeds.</p>
     <ul>
       <li>Completing a Common or Uncommon plant <b>always drops a seed</b></li>
-      <li>The seed's rarity determines what tier of plant it grows</li>
+      <li>Seeds grow a plant of the <b>same rarity</b> — each seed tells you the exact species and days</li>
       <li>Use a seed from your inventory to replace your current plant</li>
     </ul>
-    <p class="info-note"><b>Seed rarity → Plant tier:</b></p>
+    <p class="info-note"><b>Seed drop weights:</b></p>
     <table>
-      <tr><th>Seed Rarity</th><th>Weight</th><th>Drop %</th><th>Grows Plant Tier</th></tr>
+      <tr><th>Seed Rarity</th><th>Weight</th><th>Drop %</th></tr>
       ${seedDropRows}
     </table>`
   );
@@ -129,7 +128,7 @@ function buildHTML() {
     </tr>`;
   }).join('');
 
-  const itemHeaders = Object.keys(ITEM_TYPES).map(type => {
+  const itemHeaders = Object.keys(ITEM_TYPES).filter(t => t !== 'animate').map(type => {
     const abbr = ITEM_TYPES[type].name.split(' ').map(w => w[0]).join('');
     return `<th title="${ITEM_TYPES[type].name}">${abbr}</th>`;
   }).join('');
@@ -140,7 +139,8 @@ function buildHTML() {
       <tr><th>Plant Rarity</th><th>Drop%</th><th>2nd Drop%</th><th>Max Item Rarity</th>${itemHeaders}</tr>
       ${dropRows}
     </table>
-    <p class="info-note">Item type legend: GS=Growth Surge, SS=Sun Stone, RC=Rain Charm, PS=Prism Shard, FS=Fertile Soil, FS₂=Fusion Seed, LS=Life Spark</p>`
+    <p class="info-note">Item type legend: GS=Growth Surge, SS=Sun Stone, RC=Rain Charm, PS=Prism Shard, FS=Fertile Soil, FS₂=Fusion Seed</p>
+    <p class="info-note"><b>Life Spark</b> — 10% independent drop from any completed plant (always Legendary). Rolled separately from the table above.</p>`
   );
 
   // ─── Item Rarity Weights ───

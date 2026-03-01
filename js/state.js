@@ -16,6 +16,9 @@ function defaultState() {
       lastVisitDate: null,
       totalVisits: 0,
       minigameHighScore: 0,
+      bugKillsTotal: 0,
+      tdUnlocked: false,
+      tdHighWave: 0,
     },
   };
 }
