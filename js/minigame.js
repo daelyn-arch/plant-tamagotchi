@@ -21,6 +21,8 @@ const SPEED_ACCEL = 0.0006; // per frame
 const SPAWN_MIN_GAP = 100;
 const SPAWN_MAX_GAP = 200;
 const COLLISION_INSET = 3;
+const POT_HITBOX_W = 14;   // Universal pot collision width (obstacles hit this)
+const POT_HITBOX_H = 12;   // Universal pot collision height
 const PLAYER_TARGET_H = 36;
 const CLOUD_COUNT = 6;
 
@@ -61,6 +63,14 @@ let pendingLevelUp = null; // { oldLevel, newLevel, element }
 // Bug kill tracking (for TD unlock)
 let bugKillsThisRun = 0;
 let bugDialogues = [];  // active dialogue bubbles on screen
+let tdAlreadyUnlocked = false; // cached at game start
+
+// Dead bug corpses (fall then scroll off-screen)
+let deadBugs = [];
+
+// Elemental projectile state
+let projectiles = [];
+let projectileCooldown = 0;
 
 // Ability state (elemental pot lv2+)
 let abilityCharge = 0;
@@ -107,8 +117,18 @@ const BUG_KILL_MESSAGES = [
 ];
 
 function addBugDialogue(x, y) {
+  if (tdAlreadyUnlocked) return;
   const msg = BUG_KILL_MESSAGES[Math.floor(Math.random() * BUG_KILL_MESSAGES.length)];
   bugDialogues.push({ msg, x, y: y - 10, alpha: 1.0, life: 120 });
+}
+
+function killBug(obs) {
+  deadBugs.push({
+    x: obs.x, y: obs.y, w: obs.w, h: obs.h,
+    vy: -1.5,       // slight upward pop
+    frame: obs.frame || 0,
+    grounded: false,
+  });
 }
 
 // Ability cost lookup: [element][level] -> maxCharge
@@ -126,6 +146,9 @@ window.__debugMinigameState = () => ({
   running, gameStarted, abilityElement, abilityLevel, abilityMaxCharge,
   abilityCharge, abilityReady, fireSafetyTimer, iceSlowTimer,
   earthArmorActive, windBugImmune, windUsedDoubleJump,
+  bugKillsThisRun, projectileCount: projectiles ? projectiles.length : 0,
+  obstacleCount: obstacles ? obstacles.length : 0,
+  cutsceneActive,
   selectedPlant: selectedPlant ? {
     species: selectedPlant.species,
     potElement: selectedPlant.potElement,
@@ -140,6 +163,13 @@ window.__debugSetAbilityCharge = (val) => {
     abilityReady = true;
   }
 };
+window.__debugSpawnBug = (x, y) => {
+  obstacles.push({ type: 'bug', x: x || W - 40, y: y != null ? y : 40, w: 20, h: 12, frame: 0 });
+};
+window.__debugSetBugKills = (n) => { bugKillsThisRun = n; };
+window.__debugTriggerJump = () => { if (player) doJump(); };
+window.__debugGetProjectiles = () => projectiles.map(p => ({ x: p.x, y: p.y, element: p.element }));
+window.__debugForceGameOver = () => { if (running) gameOver(); };
 
 export function startMinigame(plants, onBack) {
   onBackCallback = onBack;
@@ -267,7 +297,11 @@ function resetGame() {
   pendingLevelUp = null;
   bugKillsThisRun = 0;
   bugDialogues = [];
+  projectiles = [];
+  projectileCooldown = 0;
+  deadBugs = [];
   cutsceneActive = false;
+  tdAlreadyUnlocked = loadState().stats.tdUnlocked || false;
 
   // Reset ability state
   abilityCharge = 0;
@@ -357,6 +391,7 @@ function update() {
         if (obs.type === 'bug') {
           bugKillsThisRun++;
           addBugDialogue(obs.x, obs.y);
+          killBug(obs);
         }
       }
       obstacles.length = 0;
@@ -396,21 +431,16 @@ function update() {
   document.getElementById('minigameScore').textContent = score;
 
   // Player physics
-  if (player.ducking && (player.grounded || (!player.grounded && windUsedDoubleJump))) {
+  if (player.ducking) {
+    // Duck always snaps to ground (fast-fall if mid-air)
     if (!player.grounded && windUsedDoubleJump) {
-      // Wind glide fast-drop: slam to ground immediately
-      player.y = GROUND_Y - Math.round(playerH * DUCK_HEIGHT_RATIO);
-      player.vy = 0;
-      player.grounded = true;
-      player.jumping = false;
       windBugImmune = false;
       windUsedDoubleJump = false;
-    } else {
-      // Normal duck on ground
-      player.y = GROUND_Y - Math.round(playerH * DUCK_HEIGHT_RATIO);
-      player.grounded = true;
-      player.jumping = false;
     }
+    player.y = GROUND_Y - Math.round(playerH * DUCK_HEIGHT_RATIO);
+    player.vy = 0;
+    player.grounded = true;
+    player.jumping = false;
   } else if (player.jumping || !player.grounded) {
     // Wind glide: reduced gravity after double jump
     const grav = windUsedDoubleJump ? GRAVITY * 0.25 : GRAVITY;
@@ -449,6 +479,82 @@ function update() {
     obs.frame = (obs.frame || 0) + 1;
     if (obs.x + obs.w < -5) {
       obstacles.splice(i, 1);
+    }
+  }
+
+  // Update dead bugs: fall with gravity, then scroll left on ground
+  for (let i = deadBugs.length - 1; i >= 0; i--) {
+    const db = deadBugs[i];
+    db.frame++;
+    if (!db.grounded) {
+      db.vy += 0.3; // gravity
+      db.y += db.vy;
+      if (db.y >= GROUND_Y - db.h) {
+        db.y = GROUND_Y - db.h;
+        db.grounded = true;
+      }
+    } else {
+      db.x -= speed;
+    }
+    if (db.x + db.w < -10) {
+      deadBugs.splice(i, 1);
+    }
+  }
+
+  // Update projectiles
+  if (projectileCooldown > 0) projectileCooldown--;
+  for (let i = projectiles.length - 1; i >= 0; i--) {
+    const p = projectiles[i];
+
+    // Re-acquire target if current one was removed
+    if (!p.target || !obstacles.includes(p.target)) {
+      p.target = null;
+      let nearest = Infinity;
+      for (const obs of obstacles) {
+        if (obs.type !== 'bug') continue;
+        const dx = obs.x - p.x;
+        if (dx > -10 && dx < nearest) { nearest = dx; p.target = obs; }
+      }
+    }
+
+    // Home toward target bug
+    if (p.target) {
+      const tx = p.target.x + p.target.w / 2;
+      const ty = p.target.y + p.target.h / 2;
+      const dx = tx - p.x;
+      const dy = ty - p.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const spd = 5;
+      if (dist > 0) {
+        p.x += (dx / dist) * spd;
+        p.y += (dy / dist) * spd;
+      }
+    } else {
+      p.x += 5;
+    }
+
+    // Remove if off-screen
+    if (p.x > W + 10 || p.x < -10 || p.y > H + 10 || p.y < -10) {
+      projectiles.splice(i, 1);
+      continue;
+    }
+    // AABB collision with bugs
+    let hit = false;
+    for (let j = obstacles.length - 1; j >= 0; j--) {
+      const obs = obstacles[j];
+      if (obs.type !== 'bug') continue;
+      if (p.x + 6 > obs.x && p.x < obs.x + obs.w &&
+          p.y + 6 > obs.y && p.y < obs.y + obs.h) {
+        bugKillsThisRun++;
+        addBugDialogue(obs.x, obs.y);
+        killBug(obs);
+        obstacles.splice(j, 1);
+        hit = true;
+        break;
+      }
+    }
+    if (hit) {
+      projectiles.splice(i, 1);
     }
   }
 
@@ -521,7 +627,7 @@ const ELEMENT_FLASH_COLORS = {
 };
 
 function checkCollisions() {
-  // Player hitbox
+  // Full sprite hitbox (used for EXP/immunity overlap detection)
   let px, py, pw, ph;
   if (player.ducking) {
     pw = Math.round(playerW * DUCK_WIDTH_RATIO);
@@ -535,11 +641,18 @@ function checkCollisions() {
     py = player.y;
   }
 
-  // Apply forgiveness inset
   const px1 = px + COLLISION_INSET;
   const py1 = py + COLLISION_INSET;
   const px2 = px + pw - COLLISION_INSET;
   const py2 = py + ph - COLLISION_INSET;
+
+  // Universal pot hitbox for lethal obstacle collision
+  const potCenterX = player.x + playerW / 2;
+  const potBottom = player.ducking ? GROUND_Y : (player.y + playerH);
+  const hx1 = potCenterX - POT_HITBOX_W / 2 + COLLISION_INSET;
+  const hy1 = potBottom - POT_HITBOX_H + COLLISION_INSET;
+  const hx2 = potCenterX + POT_HITBOX_W / 2 - COLLISION_INSET;
+  const hy2 = potBottom - COLLISION_INSET;
 
   const potElement = selectedPlant && selectedPlant.potElement;
 
@@ -587,8 +700,8 @@ function checkCollisions() {
     const ox2 = obs.x + obs.w - COLLISION_INSET;
     const oy2 = obs.y + obs.h - COLLISION_INSET;
 
-    // AABB overlap
-    if (px1 < ox2 && px2 > ox1 && py1 < oy2 && py2 > oy1) {
+    // AABB overlap using pot hitbox for lethal collisions
+    if (hx1 < ox2 && hx2 > ox1 && hy1 < oy2 && hy2 > oy1) {
       // Earth armor: absorb one hit
       if (earthArmorActive) {
         earthArmorActive = false;
@@ -597,6 +710,7 @@ function checkCollisions() {
         if (obs.type === 'bug') {
           bugKillsThisRun++;
           addBugDialogue(obs.x, obs.y);
+          killBug(obs);
         }
         // Remove this obstacle
         obstacles.splice(obstacles.indexOf(obs), 1);
@@ -606,6 +720,7 @@ function checkCollisions() {
       if (obs.type === 'bug') {
         bugKillsThisRun++;
         addBugDialogue(obs.x, obs.y);
+        killBug(obs);
       }
       return true;
     }
@@ -663,6 +778,16 @@ function render() {
     } else {
       renderBug(ctx, obs);
     }
+  }
+
+  // Dead bugs (fallen corpses)
+  for (const db of deadBugs) {
+    renderDeadBug(ctx, db);
+  }
+
+  // Projectiles
+  for (const proj of projectiles) {
+    renderProjectile(ctx, proj);
   }
 
   // Ice slow overlay
@@ -978,6 +1103,78 @@ function renderBug(ctx, obs) {
   ctx.fillRect(bx + 14, by + 10, 2, 2);
 }
 
+function renderDeadBug(ctx, db) {
+  const bx = Math.round(db.x);
+  // Draw upside-down flush with ground: place bottom of body at db.y + db.h
+  const groundY = Math.round(db.y + db.h);
+
+  ctx.save();
+  ctx.globalAlpha = 0.6;
+
+  // Legs pointing up (drawn above body)
+  ctx.fillStyle = '#1a0a00';
+  ctx.fillRect(bx + 6, groundY - 12, 2, 2);
+  ctx.fillRect(bx + 10, groundY - 12, 2, 2);
+  ctx.fillRect(bx + 14, groundY - 12, 2, 2);
+
+  // Body (flush with ground)
+  ctx.fillStyle = '#1a0a00';
+  ctx.fillRect(bx + 6, groundY - 6, 10, 6);
+  ctx.fillRect(bx + 2, groundY - 4, 4, 4);
+
+  // Eyes (dimmed)
+  ctx.fillStyle = '#662222';
+  ctx.fillRect(bx + 2, groundY - 4, 2, 2);
+
+  // Wings flat underneath (barely visible)
+  ctx.fillStyle = 'rgba(140, 160, 180, 0.3)';
+  ctx.fillRect(bx + 8, groundY - 4, 8, 4);
+
+  ctx.restore();
+}
+
+function renderProjectile(ctx, proj) {
+  const px = Math.round(proj.x);
+  const py = Math.round(proj.y);
+  const flicker = frameCount % 4 < 2;
+
+  switch (proj.element) {
+    case 'fire':
+      // Orange/yellow flickering 4x4 with trail
+      ctx.fillStyle = flicker ? '#ff6600' : '#ffaa00';
+      ctx.fillRect(px, py, 4, 4);
+      ctx.globalAlpha = 0.4;
+      ctx.fillStyle = '#ff4400';
+      ctx.fillRect(px - 3, py + 1, 3, 2);
+      ctx.globalAlpha = 1;
+      break;
+    case 'ice':
+      // Cyan crystal shard 5x3 with sparkle
+      ctx.fillStyle = '#60d0ff';
+      ctx.fillRect(px, py, 5, 3);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(px + (flicker ? 1 : 3), py, 1, 1);
+      break;
+    case 'earth':
+      // Brown pebble 5x5 with highlight
+      ctx.fillStyle = '#8a6a3a';
+      ctx.fillRect(px, py, 5, 5);
+      ctx.fillStyle = '#b09060';
+      ctx.fillRect(px + 1, py + 1, 2, 2);
+      break;
+    case 'wind':
+      // Teal blade 6x2 with transparency
+      ctx.globalAlpha = 0.7;
+      ctx.fillStyle = '#60c0b0';
+      ctx.fillRect(px, py, 6, 2);
+      ctx.globalAlpha = 0.4;
+      ctx.fillStyle = '#80e0d0';
+      ctx.fillRect(px + 1, py, 4, 1);
+      ctx.globalAlpha = 1;
+      break;
+  }
+}
+
 function renderPlayer(ctx) {
   let sprite, drawY;
 
@@ -1062,14 +1259,25 @@ function renderBugDialogues(ctx) {
   for (const d of bugDialogues) {
     ctx.save();
     ctx.globalAlpha = d.alpha;
-    ctx.font = '5px monospace';
-    ctx.fillStyle = '#ff4444';
+    ctx.font = 'bold 8px monospace';
     const textW = ctx.measureText(d.msg).width;
-    const bx = Math.max(2, Math.min(W - textW - 6, d.x - textW / 2));
-    const by = Math.max(12, d.y);
+    const bx = Math.max(2, Math.min(W - textW - 8, d.x - textW / 2));
+    const by = Math.max(14, d.y);
     // Speech bubble background
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillRect(bx - 2, by - 8, textW + 4, 10);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.fillRect(bx - 4, by - 10, textW + 8, 14);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.fillRect(bx - 3, by - 11, textW + 6, 1);
+    ctx.fillRect(bx - 3, by + 4, textW + 6, 1);
+    // Text outline for contrast
+    ctx.fillStyle = '#000000';
+    for (let ox = -1; ox <= 1; ox++) {
+      for (let oy = -1; oy <= 1; oy++) {
+        if (ox === 0 && oy === 0) continue;
+        ctx.fillText(d.msg, bx + ox, by + oy);
+      }
+    }
+    // Main text
     ctx.fillStyle = '#ff6666';
     ctx.fillText(d.msg, bx, by);
     ctx.restore();
@@ -1155,8 +1363,8 @@ function updateCutscene() {
     cutscenePlayerX -= 3;
   }
 
-  // Phase 4: End cutscene
-  if (cutsceneTimer >= 630) {
+  // Phase 4: End cutscene (extended to let text linger)
+  if (cutsceneTimer >= 900) {
     endCutscene();
   }
 }
@@ -1253,17 +1461,32 @@ function renderCutscene() {
 
   // Phase 4: Fade to black with text
   if (cutscenePhase === 4) {
-    const fadeProgress = (cutsceneTimer - 540) / 90;
-    ctx.fillStyle = `rgba(0, 0, 0, ${Math.min(1, fadeProgress)})`;
+    const phaseDuration = 360; // frames for full phase 4
+    const elapsed = cutsceneTimer - 540;
+    const fadeProgress = Math.min(1, elapsed / 60); // fade to black in 1s
+    ctx.fillStyle = `rgba(0, 0, 0, ${fadeProgress})`;
     ctx.fillRect(0, 0, W, H);
 
-    if (fadeProgress > 0.4) {
-      ctx.globalAlpha = Math.min(1, (fadeProgress - 0.4) / 0.3);
-      ctx.fillStyle = '#ff4444';
-      ctx.font = '7px monospace';
+    if (elapsed > 40) {
+      // Text fades in, holds, then fades out at end
+      const textIn = Math.min(1, (elapsed - 40) / 40);
+      const textOut = Math.max(0, 1 - (elapsed - (phaseDuration - 60)) / 60);
+      ctx.globalAlpha = elapsed > phaseDuration - 60 ? textOut : textIn;
+      ctx.font = 'bold 10px monospace';
       const text = 'Something stirs in the garden...';
       const tw = ctx.measureText(text).width;
-      ctx.fillText(text, (W - tw) / 2, H / 2);
+      const tx = (W - tw) / 2;
+      const ty = H / 2;
+      // Text outline
+      ctx.fillStyle = '#000000';
+      for (let ox = -1; ox <= 1; ox++) {
+        for (let oy = -1; oy <= 1; oy++) {
+          if (ox === 0 && oy === 0) continue;
+          ctx.fillText(text, tx + ox, ty + oy);
+        }
+      }
+      ctx.fillStyle = '#ff4444';
+      ctx.fillText(text, tx, ty);
       ctx.globalAlpha = 1;
     }
   }
@@ -1518,11 +1741,38 @@ function onTouchEnd(e) {
   touchZone = null;
 }
 
+function tryShootProjectile() {
+  if (!selectedPlant || !selectedPlant.potElement) return;
+  if (projectileCooldown > 0) return;
+
+  // Find nearest bug ahead of the player
+  let nearestBug = null;
+  let nearestDist = Infinity;
+  for (const obs of obstacles) {
+    if (obs.type !== 'bug') continue;
+    const dx = obs.x - player.x;
+    if (dx > 0 && dx < nearestDist) {
+      nearestDist = dx;
+      nearestBug = obs;
+    }
+  }
+  if (!nearestBug) return;
+
+  projectiles.push({
+    x: player.x + playerW,
+    y: player.y + playerH / 2,
+    target: nearestBug,
+    element: selectedPlant.potElement,
+  });
+  projectileCooldown = 30;
+}
+
 function doJump() {
   if (player.grounded && !player.ducking) {
     player.vy = JUMP_VEL;
     player.jumping = true;
     player.grounded = false;
+    tryShootProjectile();
   } else if (!player.grounded && abilityReady && abilityElement === 'wind' && !windUsedDoubleJump) {
     // Wind double jump
     player.vy = JUMP_VEL;
@@ -1530,6 +1780,7 @@ function doJump() {
     windUsedDoubleJump = true;
     abilityCharge = 0;
     abilityReady = false;
+    tryShootProjectile();
   }
 }
 

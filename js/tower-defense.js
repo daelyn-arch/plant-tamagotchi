@@ -83,6 +83,12 @@ let abilityFlashColor = null;
 // Background dots (deterministic)
 let bgDots = [];
 
+// Road / travel animation
+let roadOffset = 0;        // scrolling offset for road markings
+let travelAnim = 0;        // frames remaining in travel animation between waves
+let plantHopFrame = 0;     // bounce counter during travel
+let grassTufts = [];       // decorative grass positions
+
 // ── Enemy Types ────────────────────────────────────────────────────
 const ENEMY_TYPES = {
   basic: { hp: 10, speed: 0.5, w: 16, h: 12, damage: 5, exp: 1, color: '#2a1a0a' },
@@ -142,9 +148,18 @@ const ELEMENT_PROJ_COLORS = {
 // ── Public API ─────────────────────────────────────────────────────
 
 // Debug helpers
-window.__debugTDState = () => ({ running, gameStarted, wave, hp: player.hp, score });
+window.__debugTDState = () => ({
+  running, gameStarted, wave, hp: player.hp, score,
+  enemyCount: enemies.length, travelAnim, roadOffset,
+  wavePause, waveActive,
+});
 window.__debugTDSetHP = (val) => { player.hp = val; };
 window.__debugTDGameOver = () => { if (running) { player.hp = 0; tdGameOver(); } };
+window.__debugTDSpawnEnemy = (type) => { spawnEnemy(type || 'basic'); };
+window.__debugTDGetEnemies = () => enemies.map(e => ({ type: e.type, hp: e.hp, speed: e.speed, damage: e.damage }));
+window.__debugTDSetWave = (w) => { wave = w; };
+window.__debugTDClearEnemies = () => { enemies.length = 0; };
+window.__debugTDForceWaveEnd = () => { waveSpawnQueue.length = 0; enemies.length = 0; };
 
 export function startTowerDefense(plants, onBack) {
   onBackCallback = onBack;
@@ -333,8 +348,13 @@ function resetGame() {
   damageFlash = 0;
   abilityFlash = 0;
 
-  // Generate background dots
+  roadOffset = 0;
+  travelAnim = 0;
+  plantHopFrame = 0;
+
+  // Generate background dots & grass tufts
   bgDots = [];
+  grassTufts = [];
   const seed = selectedPlant ? selectedPlant.seed : Date.now();
   let s = seed;
   for (let i = 0; i < 80; i++) {
@@ -343,6 +363,15 @@ function resetGame() {
       x: (s % W),
       y: ((s >> 8) % H),
       size: 1 + (s >> 16) % 2,
+    });
+  }
+  for (let i = 0; i < 50; i++) {
+    s = (s * 1103515245 + 12345) & 0x7fffffff;
+    grassTufts.push({
+      x: (s % W),
+      y: ((s >> 8) % H),
+      h: 2 + (s >> 16) % 3,
+      shade: (s >> 20) % 3,
     });
   }
 }
@@ -380,6 +409,14 @@ function update() {
   // Between-wave pause
   if (wavePause) {
     wavePauseTimer--;
+
+    // Travel animation: scroll road + bounce plant
+    if (travelAnim > 0) {
+      travelAnim--;
+      roadOffset = (roadOffset + 2) % 16;
+      plantHopFrame++;
+    }
+
     // If level-up pending, show picker
     if (pendingUpgrades.length > 0 && !showingUpgradePicker) {
       showUpgradePicker();
@@ -422,6 +459,8 @@ function update() {
     waveActive = false;
     wavePause = true;
     wavePauseTimer = 180; // 3s between waves
+    travelAnim = 120;     // 2s travel animation
+    plantHopFrame = 0;
   }
 
   // Update enemies
@@ -638,7 +677,8 @@ function startNextWave() {
 
 function spawnEnemy(type) {
   const def = ENEMY_TYPES[type];
-  const hpScale = 1 + wave * 0.1;
+  // 30% compound scaling per wave
+  const waveScale = Math.pow(1.3, wave - 1);
 
   // Pick random edge
   const side = Math.floor(Math.random() * 4);
@@ -648,15 +688,19 @@ function spawnEnemy(type) {
   else if (side === 2) { x = Math.random() * W; y = H + def.h; } // bottom
   else { x = -def.w; y = Math.random() * H; }                   // left
 
-  const hp = type === 'boss' ? def.hp * (wave / 5) * hpScale : Math.round(def.hp * hpScale);
+  const hp = type === 'boss'
+    ? Math.round(def.hp * (wave / 5) * waveScale)
+    : Math.round(def.hp * waveScale);
+  const spd = def.speed * (1 + (waveScale - 1) * 0.3); // speed scales at 30% of hp rate
+  const dmg = Math.round(def.damage * (1 + (waveScale - 1) * 0.5)); // damage scales at 50% of hp rate
 
   enemies.push({
     type,
     x, y,
     w: def.w, h: def.h,
     hp, maxHp: hp,
-    speed: def.speed,
-    damage: def.damage,
+    speed: spd,
+    damage: dmg,
     exp: def.exp,
     color: def.color,
     frame: 0,
@@ -1145,25 +1189,53 @@ function render() {
   ctx.save();
   ctx.scale(CANVAS_SCALE, CANVAS_SCALE);
 
-  // Background — dark earth
-  ctx.fillStyle = '#1a1a12';
+  // Background — grass field
+  ctx.fillStyle = '#3a7a2a';
   ctx.fillRect(0, 0, W, H);
 
-  // Radial glow from center
-  const grad = ctx.createRadialGradient(CX, CY, 10, CX, CY, 140);
-  grad.addColorStop(0, 'rgba(80, 100, 50, 0.15)');
-  grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-  ctx.fillStyle = grad;
+  // Grass color variation
+  const grassGrad = ctx.createRadialGradient(CX, CY, 20, CX, CY, 200);
+  grassGrad.addColorStop(0, 'rgba(60, 140, 50, 0.3)');
+  grassGrad.addColorStop(0.5, 'rgba(50, 120, 40, 0.1)');
+  grassGrad.addColorStop(1, 'rgba(30, 90, 25, 0.2)');
+  ctx.fillStyle = grassGrad;
   ctx.fillRect(0, 0, W, H);
 
-  // Dirt dots
-  ctx.fillStyle = '#2a2a1a';
-  for (const dot of bgDots) {
-    ctx.fillRect(dot.x, dot.y, dot.size, dot.size);
+  // Grass detail dots
+  const grassShades = ['#4a8a35', '#358a28', '#2d7a22'];
+  for (const tuft of grassTufts) {
+    ctx.fillStyle = grassShades[tuft.shade];
+    ctx.fillRect(tuft.x, tuft.y, 1, tuft.h);
+    ctx.fillRect(tuft.x - 1, tuft.y + 1, 1, tuft.h - 1);
   }
 
-  // Range circle (subtle)
-  ctx.strokeStyle = 'rgba(100, 120, 80, 0.15)';
+  // Road — vertical dirt path through center
+  const roadW = 48;
+  const roadX = CX - roadW / 2;
+  ctx.fillStyle = '#8a7a5a';
+  ctx.fillRect(roadX, 0, roadW, H);
+  // Road edges
+  ctx.fillStyle = '#6a6040';
+  ctx.fillRect(roadX, 0, 2, H);
+  ctx.fillRect(roadX + roadW - 2, 0, 2, H);
+  // Road surface detail
+  ctx.fillStyle = '#9a8a68';
+  ctx.fillRect(roadX + 4, 0, roadW - 8, H);
+  // Center dashes (scroll with roadOffset)
+  ctx.fillStyle = '#b0a078';
+  for (let y = -16 + (roadOffset % 16); y < H; y += 16) {
+    ctx.fillRect(CX - 1, y, 2, 8);
+  }
+  // Dirt speckle on road
+  ctx.fillStyle = '#7a6a4a';
+  for (const dot of bgDots) {
+    if (dot.x > roadX + 4 && dot.x < roadX + roadW - 4) {
+      ctx.fillRect(dot.x, dot.y, dot.size, dot.size);
+    }
+  }
+
+  // Range circle (subtle, over grass)
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.arc(CX, CY, 120, 0, Math.PI * 2);
@@ -1213,10 +1285,15 @@ function render() {
   }
   ctx.globalAlpha = 1;
 
-  // Plant at center
+  // Plant at center (hop during travel animation)
   if (plantSprite) {
     const px = CX - plantSprite.width / 2;
-    const py = CY - plantSprite.height / 2;
+    let py = CY - plantSprite.height / 2;
+    if (travelAnim > 0) {
+      // Bouncy hop: sine wave creating a hopping motion
+      const hopHeight = Math.abs(Math.sin(plantHopFrame * 0.2)) * 6;
+      py -= hopHeight;
+    }
     ctx.drawImage(plantSprite, Math.round(px), Math.round(py));
   }
 

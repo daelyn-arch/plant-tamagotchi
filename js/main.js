@@ -66,14 +66,39 @@ function init() {
     switchToInfo();
   });
 
-  // Minigame button
-  document.getElementById('minigameBtn').addEventListener('click', () => {
+  // Games popup
+  document.getElementById('gamesBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const popup = document.getElementById('gamesPopup');
+    const wasOpen = popup.style.display !== 'none';
+    closeAllPopups();
+    if (!wasOpen) popup.style.display = '';
+  });
+
+  document.getElementById('gameRunnerBtn').addEventListener('click', () => {
+    closeAllPopups();
     switchToMinigame();
   });
 
-  // Tower Defense button
-  document.getElementById('towerDefenseBtn').addEventListener('click', () => {
+  document.getElementById('gameTdBtn').addEventListener('click', () => {
+    closeAllPopups();
     switchToTowerDefense();
+  });
+
+  // Bonuses popup
+  document.getElementById('bonusesBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const popup = document.getElementById('bonusesPopup');
+    const wasOpen = popup.style.display !== 'none';
+    closeAllPopups();
+    if (!wasOpen) popup.style.display = '';
+  });
+
+  // Close popups on outside click
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.popup-menu') && !e.target.closest('#gamesBtn') && !e.target.closest('#bonusesBtn')) {
+      closeAllPopups();
+    }
   });
 
   // Completion overlay "Move to Garden" button
@@ -343,10 +368,15 @@ function switchToTowerDefense() {
 }
 
 function updateTdButton(state) {
-  const btn = document.getElementById('towerDefenseBtn');
-  if (!btn) return;
+  const tdItem = document.getElementById('gameTdBtn');
+  if (!tdItem) return;
   const hasEligible = state.garden && state.garden.some(p => p.animated);
-  btn.style.display = (state.stats.tdUnlocked && hasEligible) ? '' : 'none';
+  tdItem.style.display = (state.stats.tdUnlocked && hasEligible) ? '' : 'none';
+}
+
+function closeAllPopups() {
+  document.getElementById('gamesPopup').style.display = 'none';
+  document.getElementById('bonusesPopup').style.display = 'none';
 }
 
 function switchToGallery() {

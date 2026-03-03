@@ -46,7 +46,12 @@
       <div class="streak-wrap">
         <span class="streak-label">Streak:</span>
         <span class="streak-count" id="streakCount">0 days</span>
-        <span class="streak-bonus" id="streakBonus" style="display:none"></span>
+        <button class="btn-icon" id="bonusesBtn" style="display:none" title="View bonuses"><span class="pixel-drop"></span></button>
+      </div>
+
+      <div class="popup-menu popup-bonuses" id="bonusesPopup" style="display:none">
+        <div class="popup-menu-title">Growth Bonuses</div>
+        <div id="bonusesList"></div>
       </div>
     </div>
 
@@ -59,10 +64,15 @@
       <div class="secondary-actions">
         <button class="btn" id="gardenBtn">View Garden</button>
         <button class="btn" id="inventoryBtn">Inventory</button>
-        <button class="btn" id="minigameBtn" style="display:none">Play</button>
-        <button class="btn" id="towerDefenseBtn" style="display:none">Stop the Bugs</button>
+        <button class="btn" id="gamesBtn" style="display:none">Games</button>
         <button class="btn" id="infoBtn">Info</button>
       </div>
+    </div>
+
+    <div class="popup-menu" id="gamesPopup" style="display:none">
+      <div class="popup-menu-title">Games</div>
+      <button class="popup-menu-item" id="gameRunnerBtn">Plant Runner</button>
+      <button class="popup-menu-item" id="gameTdBtn" style="display:none">Stop the Bugs</button>
     </div>
   </div>
 

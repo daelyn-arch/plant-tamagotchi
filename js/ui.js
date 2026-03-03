@@ -73,31 +73,37 @@ export function updatePlantView(state) {
   const dBonus = currentDayBonus(state.garden, streak);
   const passiveCap = legendaryPassiveCap(state.garden);
   document.getElementById('streakCount').textContent = `${streak} day${streak !== 1 ? 's' : ''}`;
-  const bonusEl = document.getElementById('streakBonus');
-  const parts = [];
-  const fmt = v => Number.isInteger(v) ? v : +v.toFixed(2);
-  if (wBonus > 0 || wCap > 0) {
-    parts.push(`watering: +${fmt(wBonus)}`);
-  }
-  if (dBonus > 0 || dCap > 0) {
-    parts.push(`consecutive: +${fmt(dBonus)} (+${fmt(dCap)}/day)`);
-  }
-  if (passiveCap > 0) {
-    parts.push(`passive: +${fmt(passiveCap)}/day`);
-  }
-  if (parts.length > 0) {
-    bonusEl.textContent = parts.join(' | ');
-    bonusEl.style.display = '';
-  } else {
-    bonusEl.style.display = 'none';
+
+  // Bonuses button — show when any bonus values > 0
+  const bonusesBtn = document.getElementById('bonusesBtn');
+  const hasBonuses = wBonus > 0 || wCap > 0 || dBonus > 0 || dCap > 0 || passiveCap > 0;
+  if (bonusesBtn) {
+    bonusesBtn.style.display = hasBonuses ? '' : 'none';
   }
 
-  // Minigame button visibility — unlocked if any plant (current or garden) has been animated
-  const mgBtn = document.getElementById('minigameBtn');
-  if (mgBtn) {
+  // Bonuses popup content
+  const bonusesList = document.getElementById('bonusesList');
+  if (bonusesList && hasBonuses) {
+    const fmt = v => Number.isInteger(v) ? v : +v.toFixed(2);
+    let html = '';
+    if (wBonus > 0 || wCap > 0) {
+      html += `<div class="bonus-row"><span class="bonus-label">Watering</span><span class="bonus-value">+${fmt(wBonus)}</span></div>`;
+    }
+    if (dBonus > 0 || dCap > 0) {
+      html += `<div class="bonus-row"><span class="bonus-label">Consecutive</span><span class="bonus-value">+${fmt(dBonus)} (+${fmt(dCap)}/day)</span></div>`;
+    }
+    if (passiveCap > 0) {
+      html += `<div class="bonus-row"><span class="bonus-label">Passive</span><span class="bonus-value">+${fmt(passiveCap)}/day</span></div>`;
+    }
+    bonusesList.innerHTML = html;
+  }
+
+  // Games button visibility — show when any animated plant exists
+  const gamesBtn = document.getElementById('gamesBtn');
+  if (gamesBtn) {
     const anyAnimated = (state.currentPlant && state.currentPlant.animated)
       || state.garden.some(p => p.animated);
-    mgBtn.style.display = anyAnimated ? '' : 'none';
+    gamesBtn.style.display = anyAnimated ? '' : 'none';
   }
 
   // Water button state
@@ -155,14 +161,20 @@ export function animateGrowthTransition(oldGrowthStage, newState, durationMs = 1
   const dBonus = currentDayBonus(newState.garden, streak);
   const passiveCap = legendaryPassiveCap(newState.garden);
   document.getElementById('streakCount').textContent = `${streak} day${streak !== 1 ? 's' : ''}`;
-  const bonusEl = document.getElementById('streakBonus');
-  const parts = [];
-  const fmt = v => Number.isInteger(v) ? v : +v.toFixed(2);
-  if (wBonus > 0 || wCap > 0) parts.push(`watering: +${fmt(wBonus)}`);
-  if (dBonus > 0 || dCap > 0) parts.push(`consecutive: +${fmt(dBonus)} (+${fmt(dCap)}/day)`);
-  if (passiveCap > 0) parts.push(`passive: +${fmt(passiveCap)}/day`);
-  if (parts.length > 0) { bonusEl.textContent = parts.join(' | '); bonusEl.style.display = ''; }
-  else { bonusEl.style.display = 'none'; }
+
+  // Update bonuses button + popup content
+  const bonusesBtn = document.getElementById('bonusesBtn');
+  const hasBonuses = wBonus > 0 || wCap > 0 || dBonus > 0 || dCap > 0 || passiveCap > 0;
+  if (bonusesBtn) bonusesBtn.style.display = hasBonuses ? '' : 'none';
+  const bonusesList = document.getElementById('bonusesList');
+  if (bonusesList && hasBonuses) {
+    const fmt = v => Number.isInteger(v) ? v : +v.toFixed(2);
+    let html = '';
+    if (wBonus > 0 || wCap > 0) html += `<div class="bonus-row"><span class="bonus-label">Watering</span><span class="bonus-value">+${fmt(wBonus)}</span></div>`;
+    if (dBonus > 0 || dCap > 0) html += `<div class="bonus-row"><span class="bonus-label">Consecutive</span><span class="bonus-value">+${fmt(dBonus)} (+${fmt(dCap)}/day)</span></div>`;
+    if (passiveCap > 0) html += `<div class="bonus-row"><span class="bonus-label">Passive</span><span class="bonus-value">+${fmt(passiveCap)}/day</span></div>`;
+    bonusesList.innerHTML = html;
+  }
 
   const fill = document.getElementById('progressFill');
   const progressText = document.getElementById('progressText');
