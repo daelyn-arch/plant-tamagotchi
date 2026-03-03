@@ -1,7 +1,7 @@
 // DOM helpers, animations, screen transitions
 
 import { renderPlantScaled } from './plant-generator.js';
-import { RARITY_COLORS } from './plant-data.js';
+import { RARITY_COLORS, getCanvasSize } from './plant-data.js';
 import {
   streakBonus, wateringBonusCap, dayBonusCap, legendaryPassiveCap,
   WATERING_BONUS_VALUES, DAY_BONUS_VALUES,
@@ -224,10 +224,17 @@ export function animateGrowthTransition(oldGrowthStage, newState, durationMs = 1
 }
 
 function getPlantScale(plant) {
+  const wrap = document.getElementById('plantCanvasWrap');
+  const canvasSize = getCanvasSize(plant.rarity);
+  const availWidth = wrap ? (wrap.clientWidth - 8) : 0; // 8px for padding
+  if (availWidth > 0) {
+    return Math.max(2, Math.min(Math.floor(availWidth / canvasSize), 12));
+  }
+  // Fallback before layout is computed
   const vw = window.innerWidth;
-  if (vw < 400) return 4;
-  if (vw < 600) return 5;
-  return 6;
+  if (vw < 400) return 8;
+  if (vw < 600) return 8;
+  return 8;
 }
 
 export function updateWaterButton(state) {
