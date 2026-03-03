@@ -17,7 +17,7 @@ const JUMP_HEIGHT_RATIO = 1.2;
 const JUMP_WIDTH_RATIO = 0.85;
 const MIN_SPEED = 2.0;
 const MAX_SPEED = 5.5;
-const SPEED_ACCEL = 0.0006; // per frame
+const SPEED_ACCEL = 0.005; // per frame
 const SPAWN_MIN_GAP = 100;
 const SPAWN_MAX_GAP = 200;
 const COLLISION_INSET = 3;
@@ -517,20 +517,26 @@ function update() {
       }
     }
 
-    // Home toward target bug
+    // Arc trajectory: launch upward, then curve toward target
+    p.age++;
+    const blend = Math.min(1, p.age / 15); // 0→1 over 15 frames
+    const spd = 5;
     if (p.target) {
       const tx = p.target.x + p.target.w / 2;
       const ty = p.target.y + p.target.h / 2;
       const dx = tx - p.x;
       const dy = ty - p.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      const spd = 5;
       if (dist > 0) {
-        p.x += (dx / dist) * spd;
-        p.y += (dy / dist) * spd;
+        const homeX = (dx / dist) * spd;
+        const homeY = (dy / dist) * spd;
+        // Blend from upward launch to homing
+        p.x += homeX * blend;
+        p.y += -spd * (1 - blend) + homeY * blend;
       }
     } else {
-      p.x += 5;
+      p.x += spd * blend;
+      p.y += -spd * (1 - blend);
     }
 
     // Remove if off-screen
@@ -1648,20 +1654,24 @@ function showGameOver(finalScore, highScore, isNewHigh) {
     const elementNames = { fire: 'Fire', ice: 'Ice', earth: 'Earth', wind: 'Wind' };
     const eleName = elementNames[selectedPlant.potElement] || selectedPlant.potElement;
 
+    const prevExp = totalExp - runExpGained;
     let progressHtml = '';
     if (nextThreshold !== null) {
-      const pct = Math.min(100, Math.round(((totalExp - prevThreshold) / (nextThreshold - prevThreshold)) * 100));
+      const oldPct = Math.min(100, Math.max(0, Math.round(((prevExp - prevThreshold) / (nextThreshold - prevThreshold)) * 100)));
+      const newPct = Math.min(100 - oldPct, Math.round((runExpGained / (nextThreshold - prevThreshold)) * 100));
       progressHtml = `
         <div class="mg-exp-progress">
-          <div class="mg-exp-bar"><div class="mg-exp-bar-fill" style="width:${pct}%"></div></div>
-          <span class="mg-exp-numbers">${totalExp} / ${nextThreshold} EXP</span>
+          <div class="mg-exp-bar">
+            <div class="mg-exp-bar-fill" style="width:${oldPct}%"></div>
+            <div class="mg-exp-bar-new" style="width:${newPct}%"></div>
+          </div>
+          <span class="mg-exp-numbers">${prevExp} <span class="mg-exp-earned">+${runExpGained}</span> / ${nextThreshold} EXP</span>
         </div>`;
     } else {
-      progressHtml = `<div class="mg-exp-numbers">${totalExp} EXP (MAX)</div>`;
+      progressHtml = `<div class="mg-exp-numbers">${prevExp} <span class="mg-exp-earned">+${runExpGained}</span> EXP (MAX)</div>`;
     }
 
     expHtml = `
-      <div class="mg-exp-gained">+${runExpGained} ${eleName} Pot EXP</div>
       ${pendingLevelUp ? `<div class="mg-level-up">Pot Level Up! Lv.${pendingLevelUp.oldLevel} → Lv.${pendingLevelUp.newLevel}</div>` : ''}
       <div class="mg-exp-section">
         <span class="mg-pot-level">Pot Lv.${currentLevel}</span>
@@ -1763,6 +1773,7 @@ function tryShootProjectile() {
     y: player.y + playerH / 2,
     target: nearestBug,
     element: selectedPlant.potElement,
+    age: 0,
   });
   projectileCooldown = 30;
 }

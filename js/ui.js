@@ -224,16 +224,26 @@ export function animateGrowthTransition(oldGrowthStage, newState, durationMs = 1
 }
 
 function getPlantScale(plant) {
-  const wrap = document.getElementById('plantCanvasWrap');
   const canvasSize = getCanvasSize(plant.rarity);
-  const availWidth = wrap ? (wrap.clientWidth - 8) : 0; // 8px for padding
-  if (availWidth > 0) {
-    return Math.max(2, Math.min(Math.floor(availWidth / canvasSize), 12));
+  // Use the plant-display container (stable dimensions from aspect-ratio)
+  // rather than the wrap (whose size depends on canvas content)
+  const display = document.querySelector('.plant-display');
+  if (display && display.clientWidth > 0) {
+    // Estimate available space: display inner area minus ~200px for text/buttons
+    const padding = 40; // approximate horizontal padding + border
+    const availWidth = display.clientWidth - padding;
+    const textHeight = 200; // approximate height of info, progress, streak
+    const availHeight = display.clientHeight - textHeight;
+    let maxScale = Math.floor(availWidth / canvasSize);
+    if (availHeight > 0) {
+      maxScale = Math.min(maxScale, Math.floor(availHeight / canvasSize));
+    }
+    return Math.max(2, Math.min(maxScale, 12));
   }
   // Fallback before layout is computed
   const vw = window.innerWidth;
-  if (vw < 400) return 8;
-  if (vw < 600) return 8;
+  if (vw < 400) return 6;
+  if (vw < 600) return 7;
   return 8;
 }
 

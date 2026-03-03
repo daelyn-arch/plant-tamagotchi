@@ -285,6 +285,7 @@ h1, h2, h3 {
   transition: all 0.15s;
   text-transform: uppercase;
   letter-spacing: 1px;
+  line-height: 2.4;
 }
 
 .btn:hover:not(:disabled) {
@@ -377,6 +378,7 @@ h1, h2, h3 {
 .secondary-actions > .btn {
   flex: 1 1 0;
   text-align: center;
+  line-height: 1.8;
 }
 
 /* Icon Button (water drop) */
@@ -476,6 +478,13 @@ h1, h2, h3 {
   border-color: var(--accent);
   transform: translateY(-1px);
   box-shadow: 0 3px 8px var(--shadow);
+}
+
+/* Games Popup — positioned by JS to the left of Games button */
+.popup-games {
+  position: absolute;
+  transform: none;
+  z-index: 20;
 }
 
 /* Bonuses Popup — centered in plant-display */
@@ -2699,10 +2708,21 @@ h1, h2, h3 {
   border-radius: 4px;
   overflow: hidden;
 }
+.mg-exp-bar {
+  display: flex;
+}
 .mg-exp-bar-fill {
   height: 100%;
   background: #f0c040;
   transition: width 0.3s;
+}
+.mg-exp-bar-new {
+  height: 100%;
+  background: #70c8f0;
+  transition: width 0.3s;
+}
+.mg-exp-earned {
+  color: #f0c040;
 }
 .mg-exp-numbers {
   font-family: 'Press Start 2P', monospace;

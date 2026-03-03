@@ -4,7 +4,7 @@
 
 import { renderPlant } from './plant-generator.js';
 import { loadState, saveState } from './state.js';
-import { potLevelFromExp } from './canvas-utils.js';
+import { potLevelFromExp, POT_LEVEL_THRESHOLDS } from './canvas-utils.js';
 
 // ── Constants ──────────────────────────────────────────────────────
 const W = 320;
@@ -1576,9 +1576,42 @@ function showGameOverScreen(isNewHigh, highWave) {
 
   let expHtml = '';
   if (selectedPlant && selectedPlant.potElement && fertilizerExp > 0) {
+    const state = loadState();
+    const gardenPlant = state.garden.find(p => p.id === selectedPlant.id);
+    const totalExp = gardenPlant ? (gardenPlant.potExp || 0) : 0;
+    const currentLevel = potLevelFromExp(totalExp);
+    const oldLevel = potLevelFromExp(totalExp - fertilizerExp);
+    const nextThreshold = currentLevel < 3 ? POT_LEVEL_THRESHOLDS[currentLevel + 1] : null;
+    const prevThreshold = POT_LEVEL_THRESHOLDS[currentLevel];
+
     const elementNames = { fire: 'Fire', ice: 'Ice', earth: 'Earth', wind: 'Wind' };
     const eleName = elementNames[selectedPlant.potElement] || selectedPlant.potElement;
-    expHtml = `<div class="mg-exp-gained">+${fertilizerExp} ${eleName} Pot EXP</div>`;
+
+    const prevExp = totalExp - fertilizerExp;
+    let progressHtml = '';
+    if (nextThreshold !== null) {
+      const oldPct = Math.min(100, Math.max(0, Math.round(((prevExp - prevThreshold) / (nextThreshold - prevThreshold)) * 100)));
+      const newPct = Math.min(100 - oldPct, Math.round((fertilizerExp / (nextThreshold - prevThreshold)) * 100));
+      progressHtml = `
+        <div class="mg-exp-progress">
+          <div class="mg-exp-bar">
+            <div class="mg-exp-bar-fill" style="width:${oldPct}%"></div>
+            <div class="mg-exp-bar-new" style="width:${newPct}%"></div>
+          </div>
+          <span class="mg-exp-numbers">${prevExp} <span class="mg-exp-earned">+${fertilizerExp}</span> / ${nextThreshold} EXP</span>
+        </div>`;
+    } else {
+      progressHtml = `<div class="mg-exp-numbers">${prevExp} <span class="mg-exp-earned">+${fertilizerExp}</span> EXP (MAX)</div>`;
+    }
+
+    expHtml = `
+      ${currentLevel > oldLevel ? `<div class="mg-level-up">Pot Level Up! Lv.${oldLevel} → Lv.${currentLevel}</div>` : ''}
+      <div class="mg-exp-section">
+        <span class="mg-pot-level">Pot Lv.${currentLevel}</span>
+        ${progressHtml}
+      </div>`;
+  } else if (selectedPlant && selectedPlant.potElement && fertilizerExp === 0) {
+    expHtml = `<div class="mg-exp-gained mg-exp-none">No EXP earned</div>`;
   }
 
   content.innerHTML = `
@@ -1586,8 +1619,6 @@ function showGameOverScreen(isNewHigh, highWave) {
     <div class="mg-score-final">Wave ${wave}</div>
     ${isNewHigh ? '<div class="mg-new-high">New Best Wave!</div>' : ''}
     <div class="mg-high-score">Best: Wave ${highWave}</div>
-    <div class="mg-score-final" style="font-size:0.6rem">Score: ${score}</div>
-    <div class="mg-score-final" style="font-size:0.5rem">Level: ${playerLevel}</div>
     ${expHtml}
     <button class="btn mg-play-btn" id="tdRetryBtn">Retry</button>
     <button class="btn mg-back-btn" id="tdBackBtn2">Back to Plant</button>

@@ -41,6 +41,9 @@ function init() {
     showToast(`Legendary passive growth: +${passiveDays} days while away!`, 'success');
   }
 
+  // Show plant screen first so layout is computed before rendering
+  showScreen('plantScreen');
+
   // Render initial plant view
   updatePlantView(state);
 
@@ -66,13 +69,21 @@ function init() {
     switchToInfo();
   });
 
-  // Games popup
+  // Games popup — positioned to the left of the Games button
   document.getElementById('gamesBtn').addEventListener('click', (e) => {
     e.stopPropagation();
     const popup = document.getElementById('gamesPopup');
     const wasOpen = popup.style.display !== 'none';
     closeAllPopups();
-    if (!wasOpen) popup.style.display = '';
+    if (!wasOpen) {
+      popup.style.display = '';
+      const btn = document.getElementById('gamesBtn');
+      const btnRect = btn.getBoundingClientRect();
+      const screen = btn.closest('.plant-screen');
+      const screenRect = screen.getBoundingClientRect();
+      popup.style.left = (btnRect.left - screenRect.left - popup.offsetWidth - 8) + 'px';
+      popup.style.top = (btnRect.top - screenRect.top) + 'px';
+    }
   });
 
   document.getElementById('gameRunnerBtn').addEventListener('click', () => {
@@ -134,8 +145,6 @@ function init() {
 
   // Show/hide TD button
   updateTdButton(state);
-
-  showScreen('plantScreen');
 }
 
 function handleWater() {
@@ -343,9 +352,12 @@ function switchToMinigame() {
     stopMinigame();
     currentScreen = 'plant';
     showScreen('plantScreen');
-    const s = loadState();
-    updatePlantView(s);
-    updateTdButton(s);
+    // Defer so browser reflows layout before reading container width for scale
+    requestAnimationFrame(() => {
+      const s = loadState();
+      updatePlantView(s);
+      updateTdButton(s);
+    });
   });
 }
 
@@ -363,7 +375,11 @@ function switchToTowerDefense() {
     stopTowerDefense();
     currentScreen = 'plant';
     showScreen('plantScreen');
-    updatePlantView(loadState());
+    requestAnimationFrame(() => {
+      const s = loadState();
+      updatePlantView(s);
+      updateTdButton(s);
+    });
   });
 }
 
