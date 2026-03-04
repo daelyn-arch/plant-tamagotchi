@@ -30,7 +30,8 @@ export const SPECIES = [
     complexity: 2,
     weight: 30,
     hasFlowers: true,
-    leafType: 'round',
+    leafType: 'spatula',
+    flowerTemplate: 'daisy',
   },
   {
     name: 'Tulip',
@@ -40,7 +41,8 @@ export const SPECIES = [
     complexity: 2,
     weight: 28,
     hasFlowers: true,
-    leafType: 'pointed',
+    leafType: 'lance',
+    flowerTemplate: 'tulip',
   },
   {
     name: 'Marigold',
@@ -51,6 +53,7 @@ export const SPECIES = [
     weight: 26,
     hasFlowers: true,
     leafType: 'round',
+    flowerTemplate: 'daisy',
   },
   {
     name: 'Lavender',
@@ -82,7 +85,7 @@ export const SPECIES = [
     complexity: 3,
     weight: 12,
     hasFlowers: false,
-    leafType: 'fern',
+    leafType: 'pinnae',
   },
   {
     name: 'Succulent',
@@ -102,7 +105,8 @@ export const SPECIES = [
     complexity: 3,
     weight: 11,
     hasFlowers: true,
-    leafType: 'round',
+    leafType: 'heart',
+    flowerTemplate: 'simple',
   },
   {
     name: 'Snapdragon',
@@ -112,7 +116,8 @@ export const SPECIES = [
     complexity: 3,
     weight: 9,
     hasFlowers: true,
-    leafType: 'pointed',
+    leafType: 'lance',
+    flowerTemplate: 'star',
   },
   {
     name: 'Pitcher Plant',
@@ -144,7 +149,8 @@ export const SPECIES = [
     complexity: 4,
     weight: 4,
     hasFlowers: true,
-    leafType: 'long',
+    leafType: 'strap',
+    flowerTemplate: 'simple',
   },
   {
     name: 'Black Dahlia',
@@ -366,6 +372,46 @@ export const LEAF_TEMPLATES = {
     [-2, 0], [-1, 0], [1, 0], [2, 0],
     [-1, 1], [1, 1],
     [0, 2],
+  ],
+  spatula: [
+    // Daisy basal leaf — wider at tip, narrow at base
+    [0, 3], [0, 2], [0, 1],
+    [-1, 0], [0, 0], [1, 0],
+    [-2, -1], [-1, -1], [0, -1], [1, -1], [2, -1],
+    [-2, -2], [-1, -2], [0, -2], [1, -2], [2, -2],
+    [-1, -3], [0, -3], [1, -3],
+  ],
+  heart: [
+    // Violet heart-shaped leaf
+    [-1, -2], [1, -2],
+    [-2, -1], [-1, -1], [0, -1], [1, -1], [2, -1],
+    [-2, 0], [-1, 0], [0, 0], [1, 0], [2, 0],
+    [-1, 1], [0, 1], [1, 1],
+    [0, 2],
+  ],
+  lance: [
+    // Snapdragon/Tulip narrow pointed leaf
+    [0, -4], [0, -3],
+    [-1, -2], [0, -2], [1, -2],
+    [-1, -1], [0, -1], [1, -1],
+    [-1, 0], [0, 0], [1, 0],
+    [0, 1], [0, 2], [0, 3],
+  ],
+  strap: [
+    // Orchid long wide drooping leaf
+    [0, 0], [1, 0], [-1, 0],
+    [1, 1], [0, 1], [-1, 1],
+    [2, 2], [1, 2], [0, 2],
+    [2, 3], [1, 3],
+    [3, 4], [2, 4],
+    [3, 5], [4, 5],
+    [4, 6],
+  ],
+  pinnae: [
+    // Fern tiny individual leaflet
+    [0, 0], [1, 0],
+    [0, -1], [1, -1],
+    [0, 1],
   ],
 };
 

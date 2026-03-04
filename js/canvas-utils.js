@@ -53,24 +53,70 @@ export function hsl(h, s, l) {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
-// Generate a plant palette from RNG
-export function generatePalette(rng) {
+// Species-specific palette constraints
+const SPECIES_PALETTE_CONFIG = {
+  'Daisy':          { gH: [100,120], gS: [50,70], fH: 50,  fS: [70,90], fMode: 'fixed', petalWhite: true },
+  'Tulip':          { gH: [110,130], gS: [50,75], fH: [0,15,45,280,330], fS: [70,95], fMode: 'pick' },
+  'Marigold':       { gH: [100,130], gS: [50,70], fH: [25,45], fS: [75,95], fMode: 'range' },
+  'Lavender':       { gH: [100,120], gS: [25,40], fH: [270,280], fS: [50,75], fMode: 'range' },
+  'Clover Patch':   { gH: [115,135], gS: [55,75] },
+  'Fern':           { gH: [120,145], gS: [55,80] },
+  'Succulent':      { gH: [130,160], gS: [30,50] },
+  'Violet':         { gH: [110,130], gS: [50,70], fH: [260,280], fS: [60,85], fMode: 'range' },
+  'Snapdragon':     { gH: [110,125], gS: [50,70], fH: [0,30,45,300,330], fS: [70,95], fMode: 'pick' },
+  'Pitcher Plant':  { gH: [100,130], gS: [40,60], accent: [0, 40, 30] },
+  'Bonsai':         { gH: [110,140], gS: [45,70] },
+  'Orchid':         { gH: [120,140], gS: [50,75], fH: [280,300,320,0,30], fS: [60,90], fMode: 'pick' },
+  'Cactus Rose':    { gH: [100,120], gS: [25,40], fH: [330,345,0], fS: [60,85], fMode: 'pick' },
+  'Moon Lily':      { gH: [130,150], gS: [40,60], fH: 50, fS: [10,20], fMode: 'fixed' },
+};
+
+// Generate a plant palette from RNG, optionally constrained by species
+export function generatePalette(rng, speciesName) {
+  const cfg = speciesName ? SPECIES_PALETTE_CONFIG[speciesName] : null;
+
   // Green base hue with variation
-  const greenHue = rng.int(90, 150);
+  const greenHue = cfg ? rng.int(cfg.gH[0], cfg.gH[1]) : rng.int(90, 150);
+  const greenSatMin = cfg ? cfg.gS[0] : 40;
+  const greenSatMax = cfg ? cfg.gS[1] : 80;
   const greens = [
-    hsl(greenHue, rng.int(40, 70), 20), // dark
-    hsl(greenHue, rng.int(50, 80), 35), // medium
-    hsl(greenHue, rng.int(50, 80), 50), // light
-    hsl(greenHue, rng.int(40, 60), 65), // highlight
+    hsl(greenHue, rng.int(Math.max(greenSatMin - 10, 20), greenSatMax - 10), 20),
+    hsl(greenHue, rng.int(greenSatMin, greenSatMax), 35),
+    hsl(greenHue, rng.int(greenSatMin, greenSatMax), 50),
+    hsl(greenHue, rng.int(Math.max(greenSatMin - 10, 20), greenSatMax - 10), 65),
   ];
 
-  // Flower accent hue — complementary-ish
-  const flowerHue = rng.pick([0, 30, 45, 280, 300, 320, 340, 200, 60]);
-  const flowers = [
-    hsl(flowerHue, rng.int(60, 90), 40),
-    hsl(flowerHue, rng.int(70, 95), 55),
-    hsl(flowerHue, rng.int(70, 95), 70),
-  ];
+  // Flower accent hue — species-constrained or complementary-ish
+  let flowerHue;
+  let flowerSatMin = 60, flowerSatMax = 95;
+  if (cfg && cfg.fMode === 'fixed') {
+    flowerHue = cfg.fH;
+    flowerSatMin = cfg.fS[0]; flowerSatMax = cfg.fS[1];
+  } else if (cfg && cfg.fMode === 'pick') {
+    flowerHue = rng.pick(cfg.fH);
+    flowerSatMin = cfg.fS[0]; flowerSatMax = cfg.fS[1];
+  } else if (cfg && cfg.fMode === 'range') {
+    flowerHue = rng.int(cfg.fH[0], cfg.fH[1]);
+    flowerSatMin = cfg.fS[0]; flowerSatMax = cfg.fS[1];
+  } else {
+    flowerHue = rng.pick([0, 30, 45, 280, 300, 320, 340, 200, 60]);
+  }
+
+  let flowers;
+  if (cfg && cfg.petalWhite) {
+    // White petals with colored center (e.g. Daisy)
+    flowers = [
+      hsl(flowerHue, rng.int(flowerSatMin, flowerSatMax), 50), // center color
+      hsl(0, 0, 92),  // petal near-white
+      hsl(0, 0, 98),  // petal bright white
+    ];
+  } else {
+    flowers = [
+      hsl(flowerHue, rng.int(flowerSatMin, flowerSatMax), 40),
+      hsl(flowerHue, rng.int(flowerSatMin, flowerSatMax), 55),
+      hsl(flowerHue, rng.int(flowerSatMin, flowerSatMax), 70),
+    ];
+  }
 
   // Pot colors
   const potPresets = [

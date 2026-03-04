@@ -539,7 +539,15 @@ function drawStem(ctx, cx, soilY, height, palette, rng, complexity, size) {
 
     for (let t = -Math.floor(thick / 2); t <= Math.floor(thick / 2); t++) {
       const isEdge = Math.abs(t) === Math.floor(thick / 2) && thick > 1;
-      setPixel(ctx, px + t, y, isEdge ? stemDark : stemMid);
+      // Cylindrical highlight — lighter on one consistent side
+      const isHighlight = t === Math.floor(thick / 2) - 1 && thick >= 2;
+      setPixel(ctx, px + t, y, isEdge ? stemDark : (isHighlight ? green[2] : stemMid));
+    }
+
+    // Node joints every 3-4px — slight bulge
+    if ((soilY - y) % 4 === 0 && thick >= 2 && progress > 0.1 && progress < 0.85) {
+      setPixel(ctx, px - Math.floor(thick / 2) - 1, y, stemDark);
+      setPixel(ctx, px + Math.floor(thick / 2) + 1, y, stemDark);
     }
 
     // Bark texture on thick stems
@@ -584,13 +592,18 @@ function drawBranches(ctx, stemPoints, palette, rng, complexity, growthStage, si
 
     for (let j = 0; j < branchLen; j++) {
       bx += dir;
-      if (rng.chance(upBias)) by -= 1;
-      else if (rng.chance(0.15)) by += 1;
+      // Better upward growth bias — stronger at start, weakens toward tip
+      const localUpBias = upBias + (1 - j / branchLen) * 0.15;
+      if (rng.chance(localUpBias)) by -= 1;
+      else if (rng.chance(0.1)) by += 1;
 
-      // Branch thickness tapers
-      const thick = j < branchLen * 0.3 && complexity >= 3 ? 2 : 1;
+      // Branch thickness tapers toward tips
+      const branchProgress = j / branchLen;
+      const thick = branchProgress < 0.25 && complexity >= 3 ? 2 : 1;
       for (let t = 0; t < thick; t++) {
-        setPixel(ctx, bx, by - t, green[rng.chance(0.4) ? 0 : 1]);
+        // Lighter color toward tips
+        const shade = branchProgress > 0.7 ? 1 : (rng.chance(0.4) ? 0 : 1);
+        setPixel(ctx, bx, by - t, green[shade]);
       }
       branchPoints.push({ x: bx, y: by });
 
@@ -625,6 +638,13 @@ function drawLeaf(ctx, x, y, template, colors, flip, rng) {
     const edgeShade = dist > 2 ? Math.max(0, shade - 1) : shade;
     setPixel(ctx, x + fx, y + dy, colors[edgeShade]);
   }
+  // Subtle center vein — draw a darker line along the leaf midrib
+  const midPixels = pixels.filter(([dx]) => dx === 0);
+  if (midPixels.length > 1) {
+    for (const [, dy] of midPixels) {
+      setPixel(ctx, x, y + dy, colors[0]);
+    }
+  }
 }
 
 function drawLeaves(ctx, points, palette, rng, leafType, growthStage, complexity, size) {
@@ -657,9 +677,9 @@ function drawLeaves(ctx, points, palette, rng, leafType, growthStage, complexity
 
 // ── Flowers ────────────────────────────────────────────────────────
 
-function drawFlowers(ctx, points, palette, rng, growthStage, complexity, size) {
+function drawFlowers(ctx, points, palette, rng, growthStage, complexity, size, flowerTemplate) {
   const flowerColors = palette.flowers;
-  const templateKey = rng.pick(Object.keys(FLOWER_TEMPLATES));
+  const templateKey = flowerTemplate && FLOWER_TEMPLATES[flowerTemplate] ? flowerTemplate : rng.pick(Object.keys(FLOWER_TEMPLATES));
   const template = FLOWER_TEMPLATES[templateKey][0];
 
   // Place flowers at the highest points / branch tips
@@ -707,6 +727,14 @@ function drawFlowers(ctx, points, palette, rng, growthStage, complexity, size) {
     const centerColor = flowerColors[0];
     for (const [cdx, cdy] of template.center) {
       setPixel(ctx, best.x + cdx, best.y + cdy, centerColor);
+    }
+    // Stamen/pistil dots at flower center
+    if (bloom > 0.5) {
+      setPixel(ctx, best.x, best.y, '#e8d860');
+      if (template.center.length > 3) {
+        setPixel(ctx, best.x + 1, best.y, '#d0c050');
+        setPixel(ctx, best.x - 1, best.y, '#d0c050');
+      }
     }
   }
 }
@@ -772,7 +800,8 @@ function drawSucculent(ctx, cx, soilY, height, palette, rng, growthStage, size) 
     }
   }
 
-  // Tiny highlight dots on leaf tips
+  // Pinkish stress-coloring at petal tips + highlight dots
+  const stressColor = hsl(rng.int(340, 355), rng.int(30, 50), 65);
   for (let i = 0; i < layers; i++) {
     const angle = i * 0.75 + rng.float(0, 0.6);
     const y = baseY - i * Math.max(1, Math.floor(size * 0.04));
@@ -782,7 +811,12 @@ function drawSucculent(ctx, cx, soilY, height, palette, rng, growthStage, size) 
       const dir = (a * Math.PI * 2) / numPetals + angle;
       const tipX = Math.round(cx + Math.cos(dir) * (radius - 1));
       const tipY = Math.round(y + Math.sin(dir) * (radius - 1) * 0.55);
-      setPixel(ctx, tipX, tipY, green[3]);
+      // Stress coloring at tips
+      setPixel(ctx, tipX, tipY, rng.chance(0.6) ? stressColor : green[3]);
+      // Fleshy thickness highlight one pixel inward
+      const innerX = Math.round(cx + Math.cos(dir) * (radius - 2));
+      const innerY = Math.round(y + Math.sin(dir) * (radius - 2) * 0.55);
+      if (radius > 3) setPixel(ctx, innerX, innerY, green[3]);
     }
   }
 }
@@ -834,6 +868,13 @@ function drawBonsaiCanopy(ctx, points, palette, rng, growthStage, size) {
       const hy = pt.y - rng.int(1, radius - 1);
       setPixel(ctx, hx, hy, green[3]);
     }
+
+    // Canopy underside shadow
+    for (let dx = -Math.floor(radius * 0.8); dx <= Math.floor(radius * 0.8); dx++) {
+      if (rng.chance(0.4)) {
+        setPixel(ctx, pt.x + dx, pt.y + Math.floor(radius * 0.3), green[0]);
+      }
+    }
   }
 }
 
@@ -868,17 +909,42 @@ function drawCactusBody(ctx, cx, soilY, height, palette, rng, growthStage, size)
     }
   }
 
-  // Spines
+  // Deeper rib shadows between ribs
+  for (let y = bodyTop + 1; y < soilY - 1; y++) {
+    const progress = (soilY - y) / height;
+    let w = bodyW;
+    if (progress > 0.85) {
+      const roundT = (progress - 0.85) / 0.15;
+      w = Math.max(1, Math.round(bodyW * (1 - roundT * 0.7)));
+    }
+    const left = cx - Math.floor(w / 2);
+    for (let x = left + 1; x < left + w - 1; x++) {
+      if ((x - left) % 2 === 1 && w > 3) {
+        // Rib valley shadow
+        setPixel(ctx, x, y, green[0]);
+      }
+    }
+  }
+
+  // Areoles with radiating spine clusters
   for (let y = bodyTop + 2; y < soilY - 2; y += 3) {
     if (rng.chance(0.7)) {
       const left = cx - Math.floor(bodyW / 2);
+      // Areole dot (small fuzzy spot)
+      setPixel(ctx, left, y, '#c8c090');
+      // Radiating spines
       setPixel(ctx, left - 1, y, '#d4c8a0');
       setPixel(ctx, left - 2, y - 1, '#d4c8a0');
+      setPixel(ctx, left - 1, y - 1, '#d4c8a0');
+      if (rng.chance(0.5)) setPixel(ctx, left - 2, y, '#d4c8a0');
     }
     if (rng.chance(0.7)) {
       const right = cx + Math.floor(bodyW / 2);
+      setPixel(ctx, right, y, '#c8c090');
       setPixel(ctx, right + 1, y, '#d4c8a0');
       setPixel(ctx, right + 2, y - 1, '#d4c8a0');
+      setPixel(ctx, right + 1, y - 1, '#d4c8a0');
+      if (rng.chance(0.5)) setPixel(ctx, right + 2, y, '#d4c8a0');
     }
   }
 
@@ -924,8 +990,13 @@ function drawCactusBody(ctx, cx, soilY, height, palette, rng, growthStage, size)
 // ── Moon Lily special ──────────────────────────────────────────────
 
 function drawMoonLilyPetals(ctx, points, palette, rng, growthStage, size) {
-  const flowerColors = palette.flowers;
-  // Ethereal large lily blooms
+  // Force white/cream palette for Moon Lily
+  const petalLight = '#f8f4e8';
+  const petalMid = '#e8e0d0';
+  const petalEdge = '#d0c8b8';
+  const centerGlow = '#fffbe6';
+  const stamenColor = '#c8b060';
+
   const topPoints = [...points].sort((a, b) => a.y - b.y).slice(0, 5);
   const numFlowers = rng.int(1, 3);
   const placed = [];
@@ -937,33 +1008,57 @@ function drawMoonLilyPetals(ctx, points, palette, rng, growthStage, size) {
     placed.push(pt);
 
     const bloom = Math.min(1, (growthStage - 0.7) / 0.25);
-    const petalLen = Math.max(2, Math.floor(size * 0.1 * bloom));
+    const petalLen = Math.max(3, Math.floor(size * 0.12 * bloom));
     const numPetals = 6;
 
     for (let p = 0; p < numPetals; p++) {
       const angle = (p * Math.PI * 2) / numPetals + rng.float(0, 0.3);
       for (let r = 0; r < petalLen; r++) {
+        const rt = r / petalLen;
         const px = Math.round(pt.x + Math.cos(angle) * r);
         const py = Math.round(pt.y + Math.sin(angle) * r * 0.7);
-        const rt = r / petalLen;
-        // Petal widens then tapers
-        const width = Math.max(1, Math.round(Math.sin(rt * Math.PI) * 2.5));
+        // Elongated pointed petal — widens then tapers to point
+        const width = Math.max(1, Math.round(Math.sin(rt * Math.PI * 0.8) * 2.5));
         const perp = angle + Math.PI / 2;
         for (let w = -Math.floor(width / 2); w <= Math.floor(width / 2); w++) {
           const wx = Math.round(px + Math.cos(perp) * w);
           const wy = Math.round(py + Math.sin(perp) * w * 0.7);
           const isEdge = Math.abs(w) === Math.floor(width / 2);
-          setPixel(ctx, wx, wy, isEdge ? flowerColors[1] : flowerColors[2]);
+          setPixel(ctx, wx, wy, isEdge ? petalEdge : (rt > 0.7 ? petalLight : petalMid));
+        }
+        // Recurved tips — curl back at the end
+        if (rt > 0.85) {
+          const tipX = Math.round(px + Math.cos(angle + 0.3) * 1);
+          const tipY = Math.round(py + Math.sin(angle + 0.3) * 0.7);
+          setPixel(ctx, tipX, tipY, petalLight);
         }
       }
     }
+
+    // Visible stamens radiating from center
+    for (let s = 0; s < 5; s++) {
+      const sAngle = (s * Math.PI * 2) / 5 + 0.3;
+      const sLen = Math.max(1, Math.floor(petalLen * 0.4));
+      for (let r = 1; r <= sLen; r++) {
+        const sx = Math.round(pt.x + Math.cos(sAngle) * r);
+        const sy = Math.round(pt.y + Math.sin(sAngle) * r * 0.7);
+        setPixel(ctx, sx, sy, stamenColor);
+      }
+      // Anther dot at tip
+      const ax = Math.round(pt.x + Math.cos(sAngle) * sLen);
+      const ay = Math.round(pt.y + Math.sin(sAngle) * sLen * 0.7);
+      setPixel(ctx, ax, ay, '#e0c040');
+    }
+
     // Glowing center
     for (let dx = -1; dx <= 1; dx++) {
       for (let dy = -1; dy <= 1; dy++) {
-        setPixel(ctx, pt.x + dx, pt.y + dy, flowerColors[0]);
+        if (Math.abs(dx) + Math.abs(dy) <= 1) {
+          setPixel(ctx, pt.x + dx, pt.y + dy, centerGlow);
+        }
       }
     }
-    setPixel(ctx, pt.x, pt.y, '#fffbe6');
+    setPixel(ctx, pt.x, pt.y, '#ffffff');
   }
 }
 
@@ -1436,31 +1531,70 @@ function renderHybridPlant(plant, growthStage, frameOffset) {
 
 function drawCloverPatch(ctx, cx, soilY, palette, rng, growthStage, size) {
   const green = palette.greens;
-  const numClovers = Math.max(1, Math.floor(growthStage * 8));
+  const numClovers = Math.max(2, Math.floor(growthStage * 12));
   const baseY = soilY - 2;
 
-  for (let i = 0; i < numClovers; i++) {
-    const ox = cx + rng.int(-Math.floor(size * 0.3), Math.floor(size * 0.3));
-    const oy = baseY - rng.int(1, Math.floor(size * 0.35 * growthStage));
-    const stemLen = rng.int(2, 4);
-
-    // Tiny stem
-    for (let s = 0; s < stemLen; s++) {
+  // Helper: draw a single clover leaf (3 lobes, fan arrangement on thin petiole)
+  function drawCloverLeaf(ox, oy, lobeCount) {
+    const petioleLen = rng.int(2, 4);
+    // Thin petiole
+    for (let s = 1; s <= petioleLen; s++) {
       setPixel(ctx, ox, oy + s, green[0]);
     }
-
-    // 3 leaves arranged in a fan
-    const leafSize = rng.int(1, 2);
-    const offsets = [[-2, -1], [0, -2], [2, -1]];
-    for (const [dx, dy] of offsets) {
-      const lx = ox + dx;
-      const ly = oy + dy;
+    // 3 (or 4) lobes arranged in fan
+    const angles = lobeCount === 4
+      ? [-0.7, -0.2, 0.2, 0.7]
+      : [-0.6, 0, 0.6];
+    for (const a of angles) {
+      const lx = Math.round(ox + Math.sin(a) * 2.5);
+      const ly = Math.round(oy - Math.cos(a) * 1.5);
+      // Each lobe is 2-3px heart-ish shape
       setPixel(ctx, lx, ly, green[2]);
-      if (leafSize > 1) {
-        setPixel(ctx, lx, ly - 1, green[1]);
-        setPixel(ctx, lx - 1, ly, green[1]);
-        setPixel(ctx, lx + 1, ly, green[1]);
-      }
+      setPixel(ctx, lx - 1, ly, green[1]);
+      setPixel(ctx, lx + 1, ly, green[1]);
+      setPixel(ctx, lx, ly - 1, green[2]);
+      // Inner notch for heart shape
+      setPixel(ctx, lx, ly + 1, green[0]);
+    }
+    // Center junction
+    setPixel(ctx, ox, oy, green[1]);
+  }
+
+  // Dense carpet-like ground cover
+  for (let i = 0; i < numClovers; i++) {
+    const ox = cx + rng.int(-Math.floor(size * 0.35), Math.floor(size * 0.35));
+    const oy = baseY - rng.int(1, Math.max(2, Math.floor(size * 0.3 * growthStage)));
+    // ~5% chance of 4-leaf clover
+    const lobeCount = rng.chance(0.05) ? 4 : 3;
+    drawCloverLeaf(ox, oy, lobeCount);
+  }
+
+  // Ground fill — small green dots for carpet effect
+  if (growthStage > 0.3) {
+    const fillDensity = Math.floor(growthStage * 15);
+    for (let i = 0; i < fillDensity; i++) {
+      const fx = cx + rng.int(-Math.floor(size * 0.3), Math.floor(size * 0.3));
+      const fy = baseY - rng.int(0, Math.max(1, Math.floor(size * 0.15 * growthStage)));
+      setPixel(ctx, fx, fy, green[rng.int(1, 2)]);
+    }
+  }
+
+  // Tiny white/pink clover flower heads at high growth
+  if (growthStage > 0.7) {
+    const bloom = Math.min(1, (growthStage - 0.7) / 0.25);
+    const numFlowerHeads = Math.max(1, Math.floor(bloom * 4));
+    for (let f = 0; f < numFlowerHeads; f++) {
+      const fx = cx + rng.int(-Math.floor(size * 0.25), Math.floor(size * 0.25));
+      const fy = baseY - rng.int(3, Math.max(4, Math.floor(size * 0.25)));
+      // Tiny pom-pom flower head
+      const flowerColor = rng.chance(0.5) ? '#f0d0d8' : '#ffffff';
+      setPixel(ctx, fx, fy, flowerColor);
+      setPixel(ctx, fx - 1, fy, flowerColor);
+      setPixel(ctx, fx + 1, fy, flowerColor);
+      setPixel(ctx, fx, fy - 1, flowerColor);
+      // Short stem to flower
+      setPixel(ctx, fx, fy + 1, green[0]);
+      setPixel(ctx, fx, fy + 2, green[0]);
     }
   }
 }
@@ -1471,37 +1605,83 @@ function drawPitcherPlant(ctx, cx, soilY, height, palette, rng, growthStage, siz
   const green = palette.greens;
   const numPitchers = Math.max(1, Math.floor(growthStage * 3));
   const stemProgress = Math.min(1, growthStage / 0.7);
+  const veinColor = hsl(rng.int(340, 360), 40, 35); // Red/purple veining
+  const darkInterior = hsl(rng.int(340, 360), 30, 20);
 
   for (let i = 0; i < numPitchers; i++) {
     const offsetX = i === 0 ? 0 : rng.int(-4, 4);
-    const pitcherH = Math.max(3, Math.floor(height * 0.7 * stemProgress));
+    const pitcherH = Math.max(4, Math.floor(height * 0.7 * stemProgress));
     const baseX = cx + offsetX;
     const baseY = soilY - 2;
 
-    // Stem going up
-    for (let y = 0; y < pitcherH; y++) {
-      setPixel(ctx, baseX, baseY - y, green[0]);
+    // Stem going up (slightly curved)
+    let drift = 0;
+    for (let y = 0; y < Math.floor(pitcherH * 0.3); y++) {
+      drift += (rng.random() - 0.5) * 0.15;
+      setPixel(ctx, Math.round(baseX + drift), baseY - y, green[0]);
     }
 
-    // Pitcher tube (bulges outward)
+    // Pitcher tube — swelling at base, narrowing at waist, opening at mouth
     const tubeTop = baseY - pitcherH;
-    const tubeH = Math.max(3, Math.floor(pitcherH * 0.5));
+    const tubeH = Math.max(4, Math.floor(pitcherH * 0.65));
+    const tubeBottom = tubeTop + tubeH;
     for (let y = 0; y < tubeH; y++) {
       const t = y / tubeH;
-      const w = Math.max(1, Math.round(Math.sin(t * Math.PI) * 3));
+      // Slight swelling at base (wider at bottom third)
+      let w;
+      if (t < 0.35) {
+        w = Math.max(1, Math.round(Math.sin(t / 0.35 * Math.PI * 0.5) * 3.5));
+      } else if (t < 0.6) {
+        w = Math.max(1, Math.round(2.5 - (t - 0.35) * 4)); // waist narrows
+      } else {
+        w = Math.max(1, Math.round(2 + (t - 0.6) * 5)); // mouth widens
+      }
+
       for (let dx = -w; dx <= w; dx++) {
         const isEdge = Math.abs(dx) === w;
-        const c = isEdge ? green[0] : (t > 0.6 ? '#8a3030' : green[1]);
+        let c;
+        if (isEdge) {
+          c = green[0];
+        } else if (t > 0.75) {
+          // Darker interior near mouth
+          c = darkInterior;
+        } else {
+          c = green[1];
+        }
         setPixel(ctx, baseX + dx, tubeTop + y, c);
+
+        // Red/purple veining on tube walls
+        if (!isEdge && Math.abs(dx) >= w - 2 && rng.chance(0.3)) {
+          setPixel(ctx, baseX + dx, tubeTop + y, veinColor);
+        }
+      }
+
+      // Highlight on one side for cylindrical look
+      if (w >= 2) {
+        setPixel(ctx, baseX - w + 1, tubeTop + y, green[2]);
       }
     }
 
-    // Lid/hood at top
+    // Hood-shaped lid overhanging opening
     if (growthStage > 0.5) {
-      const lidW = 3;
-      for (let dx = -lidW; dx <= lidW; dx++) {
-        setPixel(ctx, baseX + dx, tubeTop - 1, green[2]);
-        if (Math.abs(dx) < lidW) setPixel(ctx, baseX + dx, tubeTop - 2, green[3]);
+      const mouthW = Math.max(2, Math.round(2 + (1.0 - 0.6) * 5));
+      const hoodDir = rng.chance(0.5) ? -1 : 1;
+      // Hood extends out one side and curves over
+      for (let row = 0; row < 3; row++) {
+        const hw = mouthW + 1 - row;
+        for (let dx = -hw; dx <= hw + hoodDir * 2; dx++) {
+          const isEdge = Math.abs(dx) >= hw;
+          setPixel(ctx, baseX + dx, tubeTop - 1 - row, isEdge ? green[1] : green[2]);
+        }
+      }
+      // Hood tip highlight
+      setPixel(ctx, baseX + hoodDir * (mouthW + 2), tubeTop - 1, green[3]);
+
+      // Peristome (bright rim around mouth)
+      const rimY = tubeTop + Math.floor(tubeH * 0.85);
+      const rimW = Math.max(2, Math.round(2 + 0.4 * 5));
+      for (let dx = -rimW; dx <= rimW; dx++) {
+        setPixel(ctx, baseX + dx, rimY, veinColor);
       }
     }
   }
@@ -1583,77 +1763,124 @@ function drawGoldenLotusPetals(ctx, points, rng, growthStage, size) {
   if (growthStage < 0.7) return;
   const bloom = Math.min(1, (growthStage - 0.7) / 0.25);
   const goldColors = ['#8a6a10', '#c49a1a', '#e0b830', '#f0d050', '#fff0a0'];
+  const padColor = '#2a7a3a';
+  const padLight = '#3a9a4a';
   const topPt = [...points].sort((a, b) => a.y - b.y)[0];
   if (!topPt) return;
 
-  const numPetals = 8;
-  const petalLen = Math.max(2, Math.floor(size * 0.12 * bloom));
+  // Lily-pad base (flat ellipse below flower)
+  const padW = Math.max(3, Math.floor(size * 0.15));
+  const padH = Math.max(1, Math.floor(padW * 0.35));
+  for (let dy = -padH; dy <= padH; dy++) {
+    const rowW = Math.round(padW * Math.cos((dy / padH) * Math.PI * 0.5));
+    for (let dx = -rowW; dx <= rowW; dx++) {
+      const isEdge = Math.abs(dx) >= rowW - 1 || Math.abs(dy) >= padH;
+      setPixel(ctx, topPt.x + dx, topPt.y + 3 + dy, isEdge ? padColor : padLight);
+    }
+  }
+  // Pad notch (V-cut)
+  setPixel(ctx, topPt.x, topPt.y + 3 + padH, 'rgba(0,0,0,0)');
 
-  for (let p = 0; p < numPetals; p++) {
-    const angle = (p * Math.PI * 2) / numPetals;
-    for (let r = 0; r < petalLen; r++) {
-      const rt = r / petalLen;
-      const px = Math.round(topPt.x + Math.cos(angle) * r);
-      const py = Math.round(topPt.y + Math.sin(angle) * r * 0.6);
-      const w = Math.max(1, Math.round(Math.sin(rt * Math.PI) * 2));
-      const perp = angle + Math.PI / 2;
-      for (let ww = -Math.floor(w / 2); ww <= Math.floor(w / 2); ww++) {
-        const wx = Math.round(px + Math.cos(perp) * ww);
-        const wy = Math.round(py + Math.sin(perp) * ww * 0.6);
-        const ci = Math.abs(ww) === Math.floor(w / 2) ? 1 : (rt < 0.5 ? 3 : 4);
-        setPixel(ctx, wx, wy, goldColors[ci]);
+  // Nested petal layers (outer longer, inner shorter)
+  const layers = [
+    { petals: 8, len: Math.max(3, Math.floor(size * 0.13 * bloom)), offset: 0 },
+    { petals: 6, len: Math.max(2, Math.floor(size * 0.09 * bloom)), offset: 0.25 },
+    { petals: 5, len: Math.max(1, Math.floor(size * 0.05 * bloom)), offset: 0.5 },
+  ];
+
+  for (const layer of layers) {
+    for (let p = 0; p < layer.petals; p++) {
+      const angle = (p * Math.PI * 2) / layer.petals + layer.offset;
+      for (let r = 0; r < layer.len; r++) {
+        const rt = r / layer.len;
+        const px = Math.round(topPt.x + Math.cos(angle) * r);
+        const py = Math.round(topPt.y + Math.sin(angle) * r * 0.6);
+        const w = Math.max(1, Math.round(Math.sin(rt * Math.PI) * 2));
+        const perp = angle + Math.PI / 2;
+        for (let ww = -Math.floor(w / 2); ww <= Math.floor(w / 2); ww++) {
+          const wx = Math.round(px + Math.cos(perp) * ww);
+          const wy = Math.round(py + Math.sin(perp) * ww * 0.6);
+          const ci = Math.abs(ww) === Math.floor(w / 2) ? 1 : (rt < 0.5 ? 3 : 4);
+          setPixel(ctx, wx, wy, goldColors[ci]);
+        }
       }
     }
   }
 
-  // Glowing center
+  // Seed pod center (darker golden nub)
   for (let dx = -1; dx <= 1; dx++) {
     for (let dy = -1; dy <= 1; dy++) {
-      setPixel(ctx, topPt.x + dx, topPt.y + dy, goldColors[4]);
+      if (Math.abs(dx) + Math.abs(dy) <= 1) {
+        setPixel(ctx, topPt.x + dx, topPt.y + dy, goldColors[0]);
+      }
     }
   }
-  setPixel(ctx, topPt.x, topPt.y, '#ffffff');
+  setPixel(ctx, topPt.x, topPt.y, goldColors[1]);
 }
 
 // ── Emberthorn — dark thorny stem with glowing ember core ──
 
 function drawEmberthornCore(ctx, points, rng, growthStage, size) {
+  // Prominent curved thorns along stem (visible even before bloom)
+  if (growthStage > 0.2) {
+    for (let i = 2; i < points.length - 2; i += 3) {
+      const p = points[i];
+      if (rng.chance(0.5)) {
+        const dir = rng.chance(0.5) ? -1 : 1;
+        // Curved thorn — base, mid, tip
+        setPixel(ctx, p.x + dir, p.y, '#6a4a30');
+        setPixel(ctx, p.x + dir * 2, p.y - 1, '#5a3a2a');
+        setPixel(ctx, p.x + dir * 3, p.y - 2, '#4a2a1a');
+        // Thorn highlight
+        setPixel(ctx, p.x + dir * 2, p.y - 2, '#7a5a40');
+      }
+    }
+  }
+
   if (growthStage < 0.6) return;
   const emberProgress = Math.min(1, (growthStage - 0.6) / 0.3);
   const emberColors = ['#8a2a0a', '#c04010', '#e06020', '#f0a040', '#fff0a0'];
   const topPoints = [...points].sort((a, b) => a.y - b.y).slice(0, 5);
 
-  // Ember glow at top
+  // Ember flower with actual petal shapes around core
   const pt = topPoints[0];
   if (!pt) return;
-  const r = Math.max(1, Math.floor(3 * emberProgress));
-  for (let dy = -r; dy <= r; dy++) {
-    for (let dx = -r; dx <= r; dx++) {
-      const dist = Math.abs(dx) + Math.abs(dy);
-      if (dist <= r) {
-        const ci = Math.min(4, dist);
-        setPixel(ctx, pt.x + dx, pt.y + dy, emberColors[4 - ci]);
+  const r = Math.max(2, Math.floor(4 * emberProgress));
+
+  // Petal shapes radiating from center
+  const numPetals = 5;
+  for (let p = 0; p < numPetals; p++) {
+    const angle = (p * Math.PI * 2) / numPetals + rng.float(0, 0.3);
+    for (let d = 1; d <= r; d++) {
+      const px = Math.round(pt.x + Math.cos(angle) * d);
+      const py = Math.round(pt.y + Math.sin(angle) * d * 0.7);
+      const ci = Math.min(4, d);
+      setPixel(ctx, px, py, emberColors[ci]);
+      // Petal width
+      if (d < r - 1) {
+        const perp = angle + Math.PI / 2;
+        setPixel(ctx, Math.round(px + Math.cos(perp)), Math.round(py + Math.sin(perp) * 0.7), emberColors[ci - 1 >= 0 ? ci - 1 : 0]);
       }
     }
   }
 
-  // Thorns along stem
-  for (let i = 0; i < points.length; i += 3) {
-    const p = points[i];
-    if (rng.chance(0.4)) {
-      const dir = rng.chance(0.5) ? -1 : 1;
-      setPixel(ctx, p.x + dir, p.y - 1, '#5a3a2a');
-      setPixel(ctx, p.x + dir * 2, p.y - 2, '#4a2a1a');
+  // Glowing ember core
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (Math.abs(dx) + Math.abs(dy) <= 1) {
+        setPixel(ctx, pt.x + dx, pt.y + dy, emberColors[4]);
+      }
     }
   }
+  setPixel(ctx, pt.x, pt.y, '#ffffff');
 
   // Spark particles
   if (emberProgress > 0.5) {
-    const numSparks = Math.floor(emberProgress * 4);
+    const numSparks = Math.floor(emberProgress * 5);
     for (let i = 0; i < numSparks; i++) {
-      const sx = pt.x + rng.int(-3, 3);
-      const sy = pt.y + rng.int(-4, 1);
-      setPixel(ctx, sx, sy, rng.pick(['#f0a040', '#fff0a0']));
+      const sx = pt.x + rng.int(-4, 4);
+      const sy = pt.y + rng.int(-5, 1);
+      setPixel(ctx, sx, sy, rng.pick(['#f0a040', '#fff0a0', '#e06020']));
     }
   }
 }
@@ -1731,19 +1958,27 @@ function drawMarigold(ctx, cx, soilY, height, palette, rng, growthStage, size) {
       if (!best) continue;
       placed.push(best);
 
-      // Round pom-pom: concentric circles
+      // Irregular pom-pom: concentric circles with ragged edges
       const r = Math.max(1, Math.floor(bloom * 2.5));
-      for (let dy = -r; dy <= r; dy++) {
-        for (let dx = -r; dx <= r; dx++) {
+      for (let dy = -r - 1; dy <= r + 1; dy++) {
+        for (let dx = -r - 1; dx <= r + 1; dx++) {
           const dist = dx * dx + dy * dy;
-          if (dist <= r * r) {
+          // Irregular edge — some pixels extend, some don't
+          const edgeThresh = r * r + (rng.chance(0.4) ? r : 0);
+          if (dist <= edgeThresh) {
             const ci = Math.min(4, Math.floor(dist / (r * r) * 4));
-            setPixel(ctx, best.x + dx, best.y + dy, pomColors[ci]);
+            setPixel(ctx, best.x + dx, best.y + dy, pomColors[Math.min(ci, 4)]);
           }
         }
       }
       // Bright center
       setPixel(ctx, best.x, best.y, pomColors[4]);
+      // Inner petal texture dots
+      for (let d = 0; d < r; d++) {
+        const tx = best.x + rng.int(-r + 1, r - 1);
+        const ty = best.y + rng.int(-r + 1, r - 1);
+        setPixel(ctx, tx, ty, pomColors[rng.int(3, 4)]);
+      }
     }
   }
 
@@ -1779,13 +2014,16 @@ function drawLavender(ctx, cx, soilY, height, palette, rng, growthStage, size) {
       stemPts.push(pt);
     }
 
-    // Small narrow leaves along stem
+    // Narrow silvery leaves along stem (paired, opposite)
     if (growthStage > 0.2 && stemPts.length > 4) {
       for (let l = 2; l < stemPts.length - 2; l += 3) {
         const lp = stemPts[l];
-        const dir = (l % 2 === 0) ? -1 : 1;
-        setPixel(ctx, lp.x + dir, lp.y, green[2]);
-        setPixel(ctx, lp.x + dir * 2, lp.y - 1, green[2]);
+        for (let side = -1; side <= 1; side += 2) {
+          // Narrow pointed leaf
+          setPixel(ctx, lp.x + side, lp.y, green[2]);
+          setPixel(ctx, lp.x + side * 2, lp.y, green[3]); // silvery highlight
+          setPixel(ctx, lp.x + side * 3, lp.y + (side > 0 ? -1 : 0), green[2]);
+        }
       }
     }
 
@@ -1806,16 +2044,16 @@ function drawLavender(ctx, cx, soilY, height, palette, rng, growthStage, size) {
         if (idx < 0) break;
         const pt = stemPts[idx];
         const t = i / spikeLen;
-        // Wider at base, narrow at tip
-        const w = Math.max(0, Math.round((1 - t) * 1.5));
+        // More tapered spike — wider at base, very narrow at tip
+        const w = Math.max(0, Math.round((1 - t * t) * 1.8));
         for (let dx = -w; dx <= w; dx++) {
           const ci = Math.min(4, Math.abs(dx) + Math.floor(t * 2));
           setPixel(ctx, pt.x + dx, pt.y, spikeColors[ci]);
         }
-        // Tiny buds alternating
+        // Tiny bud whorls alternating sides
         if (i % 2 === 0 && w > 0) {
-          setPixel(ctx, pt.x - w - 1, pt.y, spikeColors[4]);
-          setPixel(ctx, pt.x + w + 1, pt.y, spikeColors[4]);
+          setPixel(ctx, pt.x - w - 1, pt.y, spikeColors[3]);
+          setPixel(ctx, pt.x + w + 1, pt.y, spikeColors[3]);
         }
       }
     }
@@ -2280,6 +2518,515 @@ function drawBlueFirePoppyFlowers(ctx, points, rng, growthStage, complexity, siz
   }
 }
 
+// ── Daisy — low rosette with wiry stems and composite flowers ──
+
+function drawDaisy(ctx, cx, soilY, height, palette, rng, growthStage, size) {
+  const green = palette.greens;
+  const stemProgress = Math.min(1, growthStage / 0.7);
+  const points = [];
+  const baseY = soilY - 2;
+
+  // Basal rosette of spatula-shaped leaves spreading outward from soil
+  const numLeaves = Math.max(2, Math.floor(growthStage * 5));
+  for (let i = 0; i < numLeaves; i++) {
+    const angle = (i / numLeaves) * Math.PI - Math.PI * 0.1 + rng.float(-0.15, 0.15);
+    const leafLen = Math.max(3, Math.floor(size * 0.22 * stemProgress));
+    for (let r = 0; r < leafLen; r++) {
+      const t = r / leafLen;
+      // Leaves arch outward and slightly down
+      const lx = Math.round(cx + Math.cos(angle) * r * 1.3);
+      const ly = Math.round(baseY - Math.sin(angle) * r * 0.5 + t * 1.5);
+      // Wider at tip, narrow at base
+      const w = t < 0.3 ? 0 : (t > 0.7 ? 1 : Math.round(t * 1.5));
+      setPixel(ctx, lx, ly, green[t > 0.7 ? 2 : 1]);
+      if (w > 0) {
+        setPixel(ctx, lx, ly - 1, green[2]);
+        setPixel(ctx, lx, ly + 1, green[0]);
+      }
+      points.push({ x: lx, y: ly });
+    }
+  }
+
+  // Thin wiry flower stems (1px wide, no branching)
+  if (growthStage > 0.3) {
+    const numStems = Math.max(1, Math.min(3, Math.floor(growthStage * 3)));
+    const flowerPts = [];
+    for (let s = 0; s < numStems; s++) {
+      const stemH = Math.max(4, Math.floor(height * 0.75 * stemProgress));
+      const spread = (s - (numStems - 1) / 2) * rng.float(1.5, 2.5);
+      let sx = cx + Math.round(spread);
+      let drift = 0;
+      for (let y = 0; y < stemH; y++) {
+        drift += spread * 0.015 + (rng.random() - 0.5) * 0.15;
+        const px = Math.round(sx + drift);
+        const py = baseY - y;
+        setPixel(ctx, px, py, green[0]);
+        points.push({ x: px, y: py });
+        if (y === stemH - 1) flowerPts.push({ x: px, y: py });
+      }
+    }
+
+    // Daisy composite flowers at stem tips
+    if (growthStage > 0.7) {
+      const bloom = Math.min(1, (growthStage - 0.7) / 0.25);
+      const flowerColors = palette.flowers;
+      for (const pt of flowerPts) {
+        // White ray petals in 8 directions
+        const petalLen = Math.max(2, Math.floor(3 * bloom));
+        const dirs = [
+          [0, -1], [1, -1], [1, 0], [1, 1],
+          [0, 1], [-1, 1], [-1, 0], [-1, -1],
+        ];
+        for (const [dx, dy] of dirs) {
+          for (let r = 1; r <= petalLen; r++) {
+            setPixel(ctx, pt.x + dx * r, pt.y + dy * r, flowerColors[2]); // white
+          }
+          // Petal width
+          if (petalLen >= 2) {
+            const perp = dy === 0 ? [0, 1] : dx === 0 ? [1, 0] : [0, 0];
+            if (perp[0] || perp[1]) {
+              setPixel(ctx, pt.x + dx + perp[0], pt.y + dy + perp[1], flowerColors[1]);
+            }
+          }
+        }
+        // Yellow disc center
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (Math.abs(dx) + Math.abs(dy) <= 1) {
+              setPixel(ctx, pt.x + dx, pt.y + dy, flowerColors[0]);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return points;
+}
+
+// ── Tulip — single erect stem with cup-shaped flower ──
+
+function drawTulip(ctx, cx, soilY, height, palette, rng, growthStage, size) {
+  const green = palette.greens;
+  const stemProgress = Math.min(1, growthStage / 0.7);
+  const stemH = Math.max(3, Math.floor(height * 0.85 * stemProgress));
+  const points = [];
+  const baseY = soilY - 2;
+
+  // Single thick erect stem (2px wide, minimal curve)
+  let drift = 0;
+  for (let y = 0; y < stemH; y++) {
+    drift += (rng.random() - 0.5) * 0.05;
+    const px = Math.round(cx + drift);
+    const py = baseY - y;
+    setPixel(ctx, px, py, green[1]);
+    setPixel(ctx, px + 1, py, green[0]);
+    points.push({ x: px, y: py });
+  }
+
+  // 2-3 long pointed leaves clasping stem base, arching outward
+  if (growthStage > 0.1) {
+    const numLeaves = rng.int(2, 3);
+    for (let i = 0; i < numLeaves; i++) {
+      const dir = (i % 2 === 0) ? -1 : 1;
+      const leafLen = Math.max(4, Math.floor(stemH * 0.6));
+      const startY = baseY - rng.int(0, 2);
+      for (let l = 0; l < leafLen; l++) {
+        const t = l / leafLen;
+        // Leaves arch outward from stem base
+        const lx = Math.round(cx + dir * l * 0.6 + dir * Math.sin(t * Math.PI * 0.5) * 2);
+        const ly = Math.round(startY - l + Math.sin(t * Math.PI) * 1);
+        // Narrowing toward tip
+        const w = t < 0.2 ? 2 : t < 0.7 ? 1 : 0;
+        setPixel(ctx, lx, ly, green[1]);
+        if (w >= 1) setPixel(ctx, lx + dir, ly, green[2]);
+        if (w >= 2) setPixel(ctx, lx - dir, ly, green[0]);
+        points.push({ x: lx, y: ly });
+      }
+    }
+  }
+
+  // Cup-shaped flower at top
+  if (growthStage > 0.7 && stemH > 3) {
+    const bloom = Math.min(1, (growthStage - 0.7) / 0.25);
+    const flowerColors = palette.flowers;
+    const topPt = points[stemH - 1] || { x: cx, y: baseY - stemH + 1 };
+    const cupH = Math.max(3, Math.floor(4 * bloom));
+    const cupW = Math.max(2, Math.floor(3 * bloom));
+
+    // U-shaped cup: 3 visible petals
+    for (let row = 0; row < cupH; row++) {
+      const t = row / cupH;
+      // Width expands toward top (opening of cup)
+      const w = Math.max(1, Math.round(cupW * (0.5 + t * 0.5)));
+      for (let dx = -w; dx <= w; dx++) {
+        const isEdge = Math.abs(dx) >= w - 1;
+        const py = topPt.y - row;
+        // Bottom rows are darker (interior), top rows lighter
+        const ci = isEdge ? 0 : (t < 0.4 ? 0 : 1);
+        setPixel(ctx, topPt.x + dx, py, flowerColors[ci]);
+      }
+    }
+    // Petal tips curving slightly outward at top
+    const topY = topPt.y - cupH + 1;
+    setPixel(ctx, topPt.x - cupW - 1, topY, flowerColors[2]);
+    setPixel(ctx, topPt.x + cupW + 1, topY, flowerColors[2]);
+    setPixel(ctx, topPt.x, topY - 1, flowerColors[2]);
+    // Interior shading
+    for (let dx = -1; dx <= 1; dx++) {
+      setPixel(ctx, topPt.x + dx, topPt.y, flowerColors[0]);
+    }
+  }
+
+  return points;
+}
+
+// ── Fern — arching fronds radiating from crown at soil level ──
+
+function drawFern(ctx, cx, soilY, height, palette, rng, growthStage, size) {
+  const green = palette.greens;
+  const stemProgress = Math.min(1, growthStage / 0.7);
+  const points = [];
+  const baseY = soilY - 2;
+
+  // No central stem — fronds radiate from crown at soil level
+  const numFronds = Math.max(2, Math.floor(growthStage * 7));
+  const maxFrondLen = Math.max(5, Math.floor(height * 0.85 * stemProgress));
+
+  for (let f = 0; f < numFronds; f++) {
+    // Spread fronds in a fountain pattern
+    const spread = (f / (numFronds - 1 || 1)) * Math.PI * 0.85 + Math.PI * 0.075;
+    const frondLen = Math.max(3, Math.floor(maxFrondLen * rng.float(0.7, 1.0)));
+    const curlTight = rng.float(0.02, 0.06);
+    let fx = cx;
+    let fy = baseY;
+    let angle = -spread; // Upward arc
+
+    for (let r = 0; r < frondLen; r++) {
+      const t = r / frondLen;
+      // Curved rachis (main stem of frond)
+      angle += curlTight; // Frond curls outward
+      fx += Math.cos(angle + Math.PI / 2) * 0.9;
+      fy += Math.sin(angle + Math.PI / 2) * 0.9;
+      const px = Math.round(fx);
+      const py = Math.round(fy);
+
+      setPixel(ctx, px, py, green[0]);
+      points.push({ x: px, y: py });
+
+      // Early growth: coiled fiddlehead tips
+      if (growthStage < 0.4 && t > 0.7) {
+        // Curl inward at tip
+        const curlX = Math.round(px + Math.cos(angle) * 1.5);
+        const curlY = Math.round(py + Math.sin(angle) * 1.5);
+        setPixel(ctx, curlX, curlY, green[1]);
+        break; // Stop frond early — fiddlehead
+      }
+
+      // Alternating small pinnae on both sides
+      if (r > 1 && r % 2 === 0 && t < 0.9) {
+        const perpAngle = angle + Math.PI / 2;
+        for (let side = -1; side <= 1; side += 2) {
+          const pinnaeLen = Math.max(1, Math.floor((1 - t) * 2.5));
+          for (let p = 1; p <= pinnaeLen; p++) {
+            const pinX = Math.round(px + Math.cos(perpAngle) * side * p);
+            const pinY = Math.round(py + Math.sin(perpAngle) * side * p);
+            setPixel(ctx, pinX, pinY, green[p === pinnaeLen ? 2 : 1]);
+          }
+        }
+      }
+    }
+  }
+
+  return points;
+}
+
+// ── Violet — low rosette with heart-shaped leaves and bilateral flowers ──
+
+function drawViolet(ctx, cx, soilY, height, palette, rng, growthStage, size) {
+  const green = palette.greens;
+  const stemProgress = Math.min(1, growthStage / 0.7);
+  const points = [];
+  const baseY = soilY - 2;
+
+  // Dense low rosette of 5-8 heart-shaped leaves close to ground
+  const numLeaves = Math.max(3, Math.floor(growthStage * 8));
+  for (let i = 0; i < numLeaves; i++) {
+    const angle = (i / numLeaves) * Math.PI * 2 + rng.float(-0.2, 0.2);
+    const leafLen = Math.max(2, Math.floor(size * 0.15 * stemProgress));
+    const dir = Math.cos(angle) > 0 ? 1 : -1;
+    for (let r = 0; r < leafLen; r++) {
+      const t = r / leafLen;
+      const lx = Math.round(cx + Math.cos(angle) * r * 1.2);
+      const ly = Math.round(baseY - Math.sin(angle) * r * 0.4 - (1 - t) * 1);
+      // Heart-shaped: wider in middle
+      const w = Math.round(Math.sin(t * Math.PI) * 2);
+      for (let dx = -w; dx <= w; dx++) {
+        const shade = Math.abs(dx) === w ? 0 : (t > 0.6 ? 2 : 1);
+        setPixel(ctx, lx + dx, ly, green[shade]);
+      }
+      // Center vein
+      setPixel(ctx, lx, ly, green[0]);
+      points.push({ x: lx, y: ly });
+    }
+  }
+
+  // Thin flower stalks rising above rosette
+  if (growthStage > 0.5) {
+    const numStalks = Math.max(1, Math.min(4, Math.floor(growthStage * 4)));
+    const flowerPts = [];
+    for (let s = 0; s < numStalks; s++) {
+      const stalkH = Math.max(3, Math.floor(height * 0.55 * stemProgress));
+      const spread = (s - (numStalks - 1) / 2) * rng.float(1.0, 2.0);
+      let sx = cx + Math.round(spread);
+      let drift = 0;
+      for (let y = 0; y < stalkH; y++) {
+        drift += spread * 0.02 + (rng.random() - 0.5) * 0.1;
+        const px = Math.round(sx + drift);
+        const py = baseY - y - 2;
+        setPixel(ctx, px, py, green[0]);
+        points.push({ x: px, y: py });
+        if (y === stalkH - 1) flowerPts.push({ x: px, y: py });
+      }
+    }
+
+    // Bilateral 5-petaled violet flowers
+    if (growthStage > 0.7) {
+      const bloom = Math.min(1, (growthStage - 0.7) / 0.25);
+      const flowerColors = palette.flowers;
+      for (const pt of flowerPts) {
+        const r = Math.max(1, Math.floor(2.5 * bloom));
+        // 2 upper petals
+        setPixel(ctx, pt.x - 1, pt.y - r, flowerColors[2]);
+        setPixel(ctx, pt.x + 1, pt.y - r, flowerColors[2]);
+        if (r > 1) {
+          setPixel(ctx, pt.x - 2, pt.y - r + 1, flowerColors[1]);
+          setPixel(ctx, pt.x + 2, pt.y - r + 1, flowerColors[1]);
+        }
+        // 2 side petals
+        setPixel(ctx, pt.x - r, pt.y, flowerColors[2]);
+        setPixel(ctx, pt.x + r, pt.y, flowerColors[2]);
+        if (r > 1) {
+          setPixel(ctx, pt.x - r, pt.y - 1, flowerColors[1]);
+          setPixel(ctx, pt.x + r, pt.y - 1, flowerColors[1]);
+        }
+        // 1 lower petal (slightly larger, with spur)
+        setPixel(ctx, pt.x, pt.y + r, flowerColors[1]);
+        if (r > 1) {
+          setPixel(ctx, pt.x - 1, pt.y + r, flowerColors[2]);
+          setPixel(ctx, pt.x + 1, pt.y + r, flowerColors[2]);
+          setPixel(ctx, pt.x, pt.y + r + 1, flowerColors[0]); // spur
+        }
+        // Center dot
+        setPixel(ctx, pt.x, pt.y, flowerColors[0]);
+      }
+    }
+  }
+
+  return points;
+}
+
+// ── Snapdragon — stiff stem with lance leaves and vertical flower spike ──
+
+function drawSnapdragon(ctx, cx, soilY, height, palette, rng, growthStage, size) {
+  const green = palette.greens;
+  const stemProgress = Math.min(1, growthStage / 0.7);
+  const stemH = Math.max(3, Math.floor(height * 0.9 * stemProgress));
+  const points = [];
+  const baseY = soilY - 2;
+
+  // Stiff straight central stem (2px wide)
+  let drift = 0;
+  for (let y = 0; y < stemH; y++) {
+    drift += (rng.random() - 0.5) * 0.02;
+    const px = Math.round(cx + drift);
+    const py = baseY - y;
+    setPixel(ctx, px, py, green[1]);
+    setPixel(ctx, px + 1, py, green[0]);
+    points.push({ x: px, y: py });
+  }
+
+  // Lance-shaped opposite leaves in mirrored pairs every 3-4px
+  if (growthStage > 0.15) {
+    const leafSpacing = rng.int(3, 4);
+    for (let y = 2; y < stemH - 3; y += leafSpacing) {
+      const stemPt = points[y];
+      if (!stemPt) continue;
+      for (let side = -1; side <= 1; side += 2) {
+        const leafLen = Math.max(2, Math.floor(3 * stemProgress));
+        for (let l = 1; l <= leafLen; l++) {
+          const t = l / leafLen;
+          const lx = stemPt.x + side * l;
+          const ly = stemPt.y - Math.floor(l * 0.3);
+          // Narrow lance shape
+          setPixel(ctx, lx, ly, green[t < 0.5 ? 1 : 2]);
+          if (t < 0.6) setPixel(ctx, lx, ly + 1, green[0]); // lower edge
+        }
+      }
+    }
+  }
+
+  // Vertical flower spike (raceme) at top — dense stack of tubular flowers
+  if (growthStage > 0.7 && stemH > 5) {
+    const bloom = Math.min(1, (growthStage - 0.7) / 0.25);
+    const flowerColors = palette.flowers;
+    const spikeLen = Math.max(3, Math.floor(stemH * 0.4 * bloom));
+    const spikeStartIdx = stemH - 1;
+
+    for (let i = 0; i < spikeLen; i++) {
+      const idx = spikeStartIdx - i;
+      if (idx < 0) break;
+      const pt = points[idx];
+      if (!pt) continue;
+      const t = i / spikeLen;
+      // Flowers open from bottom up
+      const open = i < spikeLen * bloom;
+
+      if (open) {
+        // Two-lipped tubular flower
+        const w = Math.max(1, Math.round(2 * (1 - t * 0.5)));
+        // Upper lip
+        for (let dx = -w; dx <= w; dx++) {
+          setPixel(ctx, pt.x + dx, pt.y - 1, flowerColors[2]);
+        }
+        // Lower lip (slightly wider)
+        for (let dx = -(w + 1); dx <= w + 1; dx++) {
+          setPixel(ctx, pt.x + dx, pt.y, flowerColors[1]);
+        }
+        // Throat
+        setPixel(ctx, pt.x, pt.y, flowerColors[0]);
+      } else {
+        // Closed bud
+        setPixel(ctx, pt.x, pt.y, flowerColors[0]);
+        setPixel(ctx, pt.x - 1, pt.y, green[2]);
+        setPixel(ctx, pt.x + 1, pt.y, green[2]);
+      }
+    }
+  }
+
+  return points;
+}
+
+// ── Orchid — short thick stem, strap leaves, arching flower spike ──
+
+function drawOrchid(ctx, cx, soilY, height, palette, rng, growthStage, size) {
+  const green = palette.greens;
+  const stemProgress = Math.min(1, growthStage / 0.7);
+  const points = [];
+  const baseY = soilY - 2;
+
+  // Short thick stem (30-40% of total height)
+  const stemH = Math.max(3, Math.floor(height * 0.35 * stemProgress));
+  for (let y = 0; y < stemH; y++) {
+    const px = cx;
+    const py = baseY - y;
+    setPixel(ctx, px - 1, py, green[0]);
+    setPixel(ctx, px, py, green[1]);
+    setPixel(ctx, px + 1, py, green[0]);
+    points.push({ x: px, y: py });
+  }
+
+  // 3-5 large strap-shaped leaves drooping from base
+  if (growthStage > 0.1) {
+    const numLeaves = Math.max(2, Math.min(5, Math.floor(growthStage * 5)));
+    for (let i = 0; i < numLeaves; i++) {
+      const dir = (i % 2 === 0) ? -1 : 1;
+      const leafLen = Math.max(4, Math.floor(size * 0.3 * stemProgress));
+      const droop = rng.float(0.03, 0.06);
+      const startY = baseY - rng.int(0, Math.max(0, stemH - 2));
+      let lx = cx;
+      let ly = startY;
+      for (let l = 0; l < leafLen; l++) {
+        const t = l / leafLen;
+        lx += dir * 0.8;
+        ly += droop * l; // Increasing droop
+        const px = Math.round(lx);
+        const py = Math.round(ly);
+        // Wide strap leaves
+        const w = t < 0.1 ? 1 : (t > 0.85 ? 0 : 1);
+        setPixel(ctx, px, py, green[1]);
+        if (w > 0) {
+          setPixel(ctx, px, py - 1, green[2]);
+          setPixel(ctx, px, py + 1, green[0]);
+        }
+        // Center vein highlight
+        if (t > 0.2 && t < 0.8) setPixel(ctx, px, py, green[2]);
+        points.push({ x: px, y: py });
+      }
+    }
+  }
+
+  // Gracefully arching flower spike curving to one side
+  if (growthStage > 0.4) {
+    const spikeDir = rng.chance(0.5) ? -1 : 1;
+    const spikeLen = Math.max(5, Math.floor(height * 0.7 * stemProgress));
+    const spikeStartY = baseY - stemH;
+    const spikePts = [];
+    let sx = cx;
+    let sy = spikeStartY;
+
+    for (let s = 0; s < spikeLen; s++) {
+      const t = s / spikeLen;
+      // Arching curve
+      sx += spikeDir * 0.3 + spikeDir * t * 0.2;
+      sy -= 0.8 - t * 0.3; // Slowing rise as it arches
+      const px = Math.round(sx);
+      const py = Math.round(sy);
+      setPixel(ctx, px, py, green[0]);
+      spikePts.push({ x: px, y: py });
+      points.push({ x: px, y: py });
+    }
+
+    // 3-5 large orchid flowers along the spike
+    if (growthStage > 0.7 && spikePts.length > 3) {
+      const bloom = Math.min(1, (growthStage - 0.7) / 0.25);
+      const flowerColors = palette.flowers;
+      const numFlowers = Math.max(2, Math.min(5, Math.floor(bloom * 5)));
+      const spacing = Math.max(2, Math.floor(spikePts.length / numFlowers));
+
+      for (let f = 0; f < numFlowers; f++) {
+        const idx = Math.min(spikePts.length - 1, Math.floor((f + 0.5) * spacing));
+        const pt = spikePts[idx];
+        if (!pt) continue;
+        const fr = Math.max(2, Math.floor(3 * bloom)); // flower radius
+
+        // 3 outer sepals (triangular points)
+        setPixel(ctx, pt.x, pt.y - fr - 1, flowerColors[1]);
+        setPixel(ctx, pt.x - fr, pt.y + 1, flowerColors[1]);
+        setPixel(ctx, pt.x + fr, pt.y + 1, flowerColors[1]);
+
+        // 2 inner petals (wider, flanking)
+        for (let dx = -1; dx <= 1; dx++) {
+          setPixel(ctx, pt.x - fr + 1 + dx, pt.y - 1, flowerColors[2]);
+          setPixel(ctx, pt.x + fr - 1 + dx, pt.y - 1, flowerColors[2]);
+        }
+
+        // Central labellum (contrasting darker color, larger)
+        const labColor = flowerColors[0];
+        setPixel(ctx, pt.x, pt.y, labColor);
+        setPixel(ctx, pt.x - 1, pt.y, labColor);
+        setPixel(ctx, pt.x + 1, pt.y, labColor);
+        setPixel(ctx, pt.x, pt.y + 1, labColor);
+        // Labellum detail
+        setPixel(ctx, pt.x, pt.y + 2, flowerColors[1]);
+
+        // Fill body of flower
+        for (let dy = -fr; dy <= 0; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            setPixel(ctx, pt.x + dx, pt.y + dy, flowerColors[2]);
+          }
+        }
+        // Re-draw labellum on top
+        setPixel(ctx, pt.x, pt.y, labColor);
+        setPixel(ctx, pt.x - 1, pt.y, labColor);
+        setPixel(ctx, pt.x + 1, pt.y, labColor);
+      }
+    }
+  }
+
+  return points;
+}
+
 export function renderPlant(plant, growthStage, frameOffset = 0) {
   let canvas;
 
@@ -2304,7 +3051,7 @@ function renderPlantBody(plant, growthStage, frameOffset) {
   const size = getCanvasSize(plant.rarity);
   const { canvas, ctx } = createCanvas(size, size);
   const rng = createRng(plant.seed);
-  const palette = generatePalette(rng);
+  const palette = generatePalette(rng, plant.species);
   const species = plant.species;
   const complexity = plant.complexity || 2;
 
@@ -2341,7 +3088,7 @@ function renderPlantBody(plant, growthStage, frameOffset) {
   if (species === 'Cactus Rose') {
     const cactusPoints = drawCactusBody(ctx, cx, soilY, stemHeight, palette, rng, growthStage, size);
     if (growthStage > 0.7 && plant.hasFlowers) {
-      drawFlowers(ctx, cactusPoints, palette, rng, growthStage, complexity, size);
+      drawFlowers(ctx, cactusPoints, palette, rng, growthStage, complexity, size, plant.flowerTemplate);
     }
     return finishWithSparkles();
   }
@@ -2418,6 +3165,42 @@ function renderPlantBody(plant, growthStage, frameOffset) {
     return finishWithSparkles();
   }
 
+  // ── Daisy ──
+  if (species === 'Daisy') {
+    drawDaisy(ctx, cx, soilY, stemHeight, palette, rng, growthStage, size);
+    return finishWithSparkles();
+  }
+
+  // ── Tulip ──
+  if (species === 'Tulip') {
+    drawTulip(ctx, cx, soilY, stemHeight, palette, rng, growthStage, size);
+    return finishWithSparkles();
+  }
+
+  // ── Fern ──
+  if (species === 'Fern') {
+    drawFern(ctx, cx, soilY, stemHeight, palette, rng, growthStage, size);
+    return finishWithSparkles();
+  }
+
+  // ── Violet ──
+  if (species === 'Violet') {
+    drawViolet(ctx, cx, soilY, stemHeight, palette, rng, growthStage, size);
+    return finishWithSparkles();
+  }
+
+  // ── Snapdragon ──
+  if (species === 'Snapdragon') {
+    drawSnapdragon(ctx, cx, soilY, stemHeight, palette, rng, growthStage, size);
+    return finishWithSparkles();
+  }
+
+  // ── Orchid ──
+  if (species === 'Orchid') {
+    drawOrchid(ctx, cx, soilY, stemHeight, palette, rng, growthStage, size);
+    return finishWithSparkles();
+  }
+
   // ── Standard stem-based plants ──
   const stemPoints = drawStem(ctx, cx, soilY, stemHeight, palette, rng, complexity, size);
   let allPoints = [...stemPoints];
@@ -2428,9 +3211,21 @@ function renderPlantBody(plant, growthStage, frameOffset) {
     allPoints = [...allPoints, ...branchPoints];
   }
 
-  // Bonsai canopy
+  // Bonsai canopy + nebari roots
   if (species === 'Bonsai' && growthStage > 0.25) {
     drawBonsaiCanopy(ctx, allPoints, palette, rng, growthStage, size);
+    // Nebari — visible surface roots at soil line
+    const numRoots = rng.int(2, 4);
+    for (let r = 0; r < numRoots; r++) {
+      const dir = (r % 2 === 0) ? -1 : 1;
+      const rootLen = rng.int(2, 4);
+      let rx = cx;
+      for (let j = 0; j < rootLen; j++) {
+        rx += dir;
+        setPixel(ctx, rx, soilY - 1, palette.stem || palette.greens[0]);
+        if (rng.chance(0.4)) setPixel(ctx, rx, soilY - 2, palette.stem || palette.greens[0]);
+      }
+    }
   }
 
   // Leaves at growth > 0.15
@@ -2453,8 +3248,8 @@ function renderPlantBody(plant, growthStage, frameOffset) {
   } else if (species === 'Emberthorn Blossom') {
     drawEmberthornCore(ctx, allPoints, rng, growthStage, size);
   } else if (growthStage > 0.7 && plant.hasFlowers) {
-    // Standard flowers for Marigold, Lavender, Snapdragon, etc.
-    drawFlowers(ctx, allPoints, palette, rng, growthStage, complexity, size);
+    // Standard flowers for remaining generic-pipeline species
+    drawFlowers(ctx, allPoints, palette, rng, growthStage, complexity, size, plant.flowerTemplate);
   }
 
   return finishWithSparkles();
