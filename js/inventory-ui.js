@@ -5,7 +5,7 @@ import { RARITY_COLORS, RARITY } from './plant-data.js';
 import {
   ITEM_TYPES, RARITY_ORDER,
   useBoostItem, useAutoWater, useArtReroll, useGardenUpgrade, combinePlants,
-  useAnimate, usePotElement, removeItem,
+  useAnimate, useSunglasses, usePotElement, removeItem,
 } from './items.js';
 import { PlantAnimator, stopAllAnimators } from './animation.js';
 import { renderPlantScaled } from './plant-generator.js';
@@ -117,15 +117,17 @@ function showItemDetail(container, item) {
   const iconWrap = document.createElement('div');
   iconWrap.className = 'item-detail-icon';
   iconWrap.appendChild(renderItemIcon(item.type, item.rarity, 6));
-
   card.appendChild(iconWrap);
-  card.innerHTML += `
+
+  const rest = document.createElement('div');
+  rest.innerHTML = `
     <h3 style="color:${RARITY_COLORS[item.rarity] || '#6b7b3a'}">${item.name}</h3>
     <p class="detail-rarity">${item.rarity}</p>
     <p class="item-detail-desc">${item.description}</p>
     ${canUse ? `<button class="btn btn-water item-use-btn" id="itemUseBtn">${item.type === 'seed' ? 'Plant Seed' : 'Use'}</button>` : ''}
     <button class="btn btn-close-detail">Close</button>
   `;
+  while (rest.firstChild) card.appendChild(rest.firstChild);
 
   overlay.appendChild(card);
   container.appendChild(overlay);
@@ -160,6 +162,8 @@ function getUseLabel(item, state) {
       return state.garden.length >= 2 ? 'Combine Plants' : null;
     case 'animate':
       return 'Animate Plant';
+    case 'sunglasses':
+      return 'Equip Sunglasses';
     case 'pot_fire':
     case 'pot_ice':
     case 'pot_earth':
@@ -203,6 +207,10 @@ function handleItemUse(container, item) {
       showPlantPicker(container, item, state, 'animate');
       break;
     }
+    case 'sunglasses': {
+      showPlantPicker(container, item, state, 'sunglasses');
+      break;
+    }
     case 'pot_fire':
     case 'pot_ice':
     case 'pot_earth':
@@ -227,18 +235,21 @@ function handleItemUse(container, item) {
 
 function showPlantPicker(container, item, state, mode) {
   const gardenContainer = document.getElementById('gardenContainer');
-  const plants = (mode === 'reroll' || mode === 'animate' || mode === 'pot_element')
+  const plants = (mode === 'reroll' || mode === 'animate' || mode === 'sunglasses' || mode === 'pot_element')
     ? [...state.garden, ...(state.currentPlant ? [state.currentPlant] : [])]
     : state.garden;
 
   const title = mode === 'reroll' ? 'Reroll Appearance'
     : mode === 'animate' ? 'Animate Plant'
+    : mode === 'sunglasses' ? 'Equip Sunglasses'
     : mode === 'pot_element' ? 'Apply Elemental Pot'
     : 'Upgrade Plant';
   const hint = mode === 'reroll'
     ? 'Select a plant to change its appearance.'
     : mode === 'animate'
     ? 'Select a plant to bring to life!'
+    : mode === 'sunglasses'
+    ? 'Select an animated plant to give sunglasses.'
     : mode === 'pot_element'
     ? 'Select a plant to transform its pot.'
     : 'Select a plant to permanently boost its bonus by 50%.';
@@ -250,7 +261,9 @@ function showPlantPicker(container, item, state, mode) {
     hint,
     plants,
     maxSelections: 1,
-    eligible: (p) => mode === 'animate' ? !p.animated : true,
+    eligible: (p) => mode === 'animate' ? !p.animated
+      : mode === 'sunglasses' ? (p.animated && !p.sunglasses)
+      : true,
     onConfirm: (ids) => {
       const freshState = loadState();
       let success = false;
@@ -258,6 +271,8 @@ function showPlantPicker(container, item, state, mode) {
         success = useArtReroll(freshState, item.id, ids[0]);
       } else if (mode === 'animate') {
         success = useAnimate(freshState, item.id, ids[0]);
+      } else if (mode === 'sunglasses') {
+        success = useSunglasses(freshState, item.id, ids[0]);
       } else if (mode === 'pot_element') {
         success = usePotElement(freshState, item.id, ids[0]);
       } else {
@@ -270,8 +285,9 @@ function showPlantPicker(container, item, state, mode) {
         const updatedState = loadState();
         const resultPlant = updatedState.garden.find(p => p.id === ids[0])
           || (updatedState.currentPlant && updatedState.currentPlant.id === ids[0] ? updatedState.currentPlant : null);
-        if (resultPlant && (mode === 'reroll' || mode === 'animate' || mode === 'pot_element')) {
+        if (resultPlant && (mode === 'reroll' || mode === 'animate' || mode === 'sunglasses' || mode === 'pot_element')) {
           const heading = mode === 'animate' ? 'Plant Awakened!'
+            : mode === 'sunglasses' ? 'Looking Cool!'
             : mode === 'pot_element' ? 'Pot Transformed!'
             : 'New Appearance';
           showResultPlant(gardenContainer, resultPlant, heading, () => {

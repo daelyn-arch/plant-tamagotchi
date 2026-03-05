@@ -46,7 +46,7 @@
       <div class="streak-wrap">
         <span class="streak-label">Streak:</span>
         <span class="streak-count" id="streakCount">0 days</span>
-        <button class="btn-icon" id="bonusesBtn" style="display:none" title="View bonuses"><span class="pixel-drop"></span></button>
+        <button class="btn-icon" id="bonusesBtn" title="View bonuses"><span class="pixel-drop"></span></button>
       </div>
 
       <div class="popup-menu popup-bonuses" id="bonusesPopup" style="display:none">
@@ -56,23 +56,26 @@
     </div>
 
     <div class="actions">
-      <button class="btn btn-water" id="waterBtn">Water Your Plant</button>
-      <div class="countdown-wrap" id="countdownWrap" style="display:none">
-        <span class="countdown-label">Next watering in</span>
-        <span class="countdown-time" id="countdownTime">--:--:--</span>
+      <div id="actionsMain">
+        <button class="btn btn-water" id="waterBtn">Water Your Plant</button>
+        <div class="countdown-wrap" id="countdownWrap" style="display:none">
+          <span class="countdown-label">Next watering in</span>
+          <span class="countdown-time" id="countdownTime">--:--:--</span>
+        </div>
+        <div class="secondary-actions">
+          <button class="btn" id="gardenBtn">View Garden</button>
+          <button class="btn" id="inventoryBtn">Inventory</button>
+          <button class="btn" id="gamesBtn" style="display:none">Games</button>
+          <button class="btn" id="infoBtn">Info</button>
+        </div>
       </div>
-      <div class="secondary-actions">
-        <button class="btn" id="gardenBtn">View Garden</button>
-        <button class="btn" id="inventoryBtn">Inventory</button>
-        <button class="btn" id="gamesBtn" style="display:none">Games</button>
-        <button class="btn" id="infoBtn">Info</button>
+      <div id="gamesMenu" class="games-menu" style="display:none">
+        <div class="games-menu-header">
+          <span class="games-menu-title">Games</span>
+          <button class="btn games-menu-back" id="gamesBackBtn">Back</button>
+        </div>
+        <div class="games-menu-grid" id="gamesMenuGrid"></div>
       </div>
-    </div>
-
-    <div class="popup-menu popup-games" id="gamesPopup" style="display:none">
-      <div class="popup-menu-title">Games</div>
-      <button class="popup-menu-item" id="gameRunnerBtn">Plant Runner</button>
-      <button class="popup-menu-item" id="gameTdBtn" style="display:none">Stop the Bugs</button>
     </div>
   </div>
 
@@ -168,6 +171,7 @@
       <button class="dev-btn" id="devUnlimitedWater">∞ Water</button>
       <button class="dev-btn" id="devInspector">Inspect</button>
       <button class="dev-btn" id="devPotExp">+100 Pot EXP</button>
+      <button class="dev-btn" id="devUnlockPR">Unlock PR</button>
       <button class="dev-btn" id="devUnlockTD">Unlock TD</button>
     </div>
     <button class="dev-toggle" id="devToggle">DEV</button>

@@ -61,6 +61,19 @@ let upgrades = {
   powerRecharge: 0,
   bugSlow: 0,
   health: 0,
+  // Elemental upgrades
+  burnDamage: 0,
+  aoeRadius: 0,
+  damageAura: 0,
+  freezeChance: 0,
+  slowStrength: 0,
+  chillAura: 0,
+  knockbackForce: 0,
+  barrierChance: 0,
+  thorns: 0,
+  chainCount: 0,
+  projSpeed: 0,
+  dodgeChance: 0,
 };
 
 let attackTimer = 0;
@@ -74,6 +87,9 @@ let pendingUpgrades = []; // queued level-up choices
 let showingUpgradePicker = false;
 let upgradeOptions = [];
 let hoverCard = -1;
+let showingDeck = false;
+let deckScroll = 0;
+let showingPauseMenu = false;
 
 // Damage flash
 let damageFlash = 0;
@@ -126,6 +142,66 @@ const UPGRADE_DEFS = [
   },
 ];
 
+// ── Elemental Upgrade Definitions (4th card) ─────────────────────
+const ELEMENTAL_UPGRADE_DEFS = {
+  fire: [
+    {
+      key: 'burnDamage', name: 'Inferno', desc: 'Burn deals more damage per tick',
+      values: { Common: 2, Uncommon: 4, Rare: 6, Epic: 10, Legendary: 16 },
+    },
+    {
+      key: 'aoeRadius', name: 'Blast Radius', desc: 'Explosions hit a wider area',
+      values: { Common: 4, Uncommon: 6, Rare: 10, Epic: 14, Legendary: 20 },
+    },
+    {
+      key: 'damageAura', name: 'Heat Aura', desc: 'Burns nearby enemies each second',
+      values: { Common: 2, Uncommon: 4, Rare: 6, Epic: 10, Legendary: 15 },
+    },
+  ],
+  ice: [
+    {
+      key: 'freezeChance', name: 'Deep Freeze', desc: 'Higher chance to freeze on hit',
+      values: { Common: 3, Uncommon: 5, Rare: 8, Epic: 12, Legendary: 18 },
+    },
+    {
+      key: 'slowStrength', name: 'Permafrost', desc: 'Slowed enemies move even slower',
+      values: { Common: 5, Uncommon: 8, Rare: 12, Epic: 18, Legendary: 25 },
+    },
+    {
+      key: 'chillAura', name: 'Chill Aura', desc: 'Passively slows nearby enemies',
+      values: { Common: 5, Uncommon: 8, Rare: 12, Epic: 18, Legendary: 25 },
+    },
+  ],
+  earth: [
+    {
+      key: 'knockbackForce', name: 'Tremor', desc: 'Knockback pushes farther',
+      values: { Common: 1, Uncommon: 2, Rare: 3, Epic: 4, Legendary: 6 },
+    },
+    {
+      key: 'barrierChance', name: 'Rock Wall', desc: 'Hits have higher barrier spawn chance',
+      values: { Common: 5, Uncommon: 8, Rare: 12, Epic: 18, Legendary: 25 },
+    },
+    {
+      key: 'thorns', name: 'Thorns', desc: 'Enemies take damage when they hit you',
+      values: { Common: 5, Uncommon: 10, Rare: 18, Epic: 30, Legendary: 50 },
+    },
+  ],
+  wind: [
+    {
+      key: 'chainCount', name: 'Gust Chain', desc: 'Projectiles chain to more enemies',
+      values: { Common: 1, Uncommon: 1, Rare: 2, Epic: 2, Legendary: 3 },
+    },
+    {
+      key: 'projSpeed', name: 'Tailwind', desc: 'Projectiles fly faster',
+      values: { Common: 1, Uncommon: 2, Rare: 3, Epic: 4, Legendary: 6 },
+    },
+    {
+      key: 'dodgeChance', name: 'Evasion', desc: 'Chance to dodge enemy damage',
+      values: { Common: 3, Uncommon: 5, Rare: 8, Epic: 12, Legendary: 18 },
+    },
+  ],
+};
+
 const RARITY_NAMES = ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary'];
 const RARITY_WEIGHTS = [50, 30, 13, 6, 1];
 const RARITY_COLORS = {
@@ -160,6 +236,8 @@ window.__debugTDGetEnemies = () => enemies.map(e => ({ type: e.type, hp: e.hp, s
 window.__debugTDSetWave = (w) => { wave = w; };
 window.__debugTDClearEnemies = () => { enemies.length = 0; };
 window.__debugTDForceWaveEnd = () => { waveSpawnQueue.length = 0; enemies.length = 0; };
+window.__debugTDForceLevelUp = () => { fertilizerExp = expToNextLevel; checkLevelUp(); };
+window.__debugTDGetUpgradeState = () => ({ showingUpgradePicker, pendingUpgrades: pendingUpgrades.length, upgradeOptions: upgradeOptions.map(o => ({ name: o.name, desc: o.desc, rarity: o.rarity, elemental: o.elemental || null })) });
 
 export function startTowerDefense(plants, onBack) {
   onBackCallback = onBack;
@@ -181,6 +259,8 @@ export function stopTowerDefense() {
   running = false;
   gameStarted = false;
   showingUpgradePicker = false;
+  showingPauseMenu = false;
+  showingDeck = false;
   if (rafId) {
     cancelAnimationFrame(rafId);
     rafId = null;
@@ -332,6 +412,18 @@ function resetGame() {
     powerRecharge: 0,
     bugSlow: 0,
     health: 0,
+    burnDamage: 0,
+    aoeRadius: 0,
+    damageAura: 0,
+    freezeChance: 0,
+    slowStrength: 0,
+    chillAura: 0,
+    knockbackForce: 0,
+    barrierChance: 0,
+    thorns: 0,
+    chainCount: 0,
+    projSpeed: 0,
+    dodgeChance: 0,
   };
 
   attackTimer = 0;
@@ -403,8 +495,9 @@ function update() {
   if (abilityFlash > 0) abilityFlash--;
   if (waveAnnounceTimer > 0) waveAnnounceTimer--;
 
-  // If showing upgrade picker, pause game
+  // If showing upgrade picker or pause menu, pause game
   if (showingUpgradePicker) return;
+  if (showingPauseMenu) return;
 
   // Between-wave pause
   if (wavePause) {
@@ -415,6 +508,28 @@ function update() {
       travelAnim--;
       roadOffset = (roadOffset + 2) % 16;
       plantHopFrame++;
+    }
+
+    // Let projectiles finish moving / expire
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+      const p = projectiles[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      p.life--;
+      if (p.x < -10 || p.x > W + 10 || p.y < -10 || p.y > H + 10 || p.life <= 0) {
+        projectiles.splice(i, 1);
+      }
+    }
+
+    // Let particles finish animating
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      p.life--;
+      if (p.life <= 0) {
+        particles.splice(i, 1);
+      }
     }
 
     // If level-up pending, show picker
@@ -461,6 +576,8 @@ function update() {
     wavePauseTimer = 180; // 3s between waves
     travelAnim = 120;     // 2s travel animation
     plantHopFrame = 0;
+    // Bonus upgrade after every completed wave
+    generateUpgradeOptions();
   }
 
   // Update enemies
@@ -480,7 +597,7 @@ function update() {
     if (e.burnTimer > 0) {
       e.burnTimer--;
       if (e.burnTimer % 20 === 0) {
-        e.hp -= e.burnDamage || 3;
+        e.hp -= (e.burnDamage || 3) + upgrades.burnDamage;
         spawnParticles(e.x, e.y, '#ff6600', 2);
         if (e.hp <= 0) {
           killEnemy(i);
@@ -503,6 +620,21 @@ function update() {
     const dist = Math.sqrt(dx * dx + dy * dy);
 
     if (dist < 20) {
+      // Dodge chance (wind upgrade)
+      if (upgrades.dodgeChance > 0 && Math.random() < upgrades.dodgeChance / 100) {
+        spawnParticles(CX, CY, '#80e0d0', 3);
+        enemies.splice(i, 1);
+        continue;
+      }
+      // Thorns (earth upgrade) — damage enemy on contact
+      if (upgrades.thorns > 0) {
+        e.hp -= upgrades.thorns;
+        spawnParticles(e.x, e.y, '#c0a060', 3);
+        if (e.hp <= 0) {
+          killEnemy(i);
+          continue;
+        }
+      }
       // Reached plant — deal damage
       player.hp -= e.damage;
       damageFlash = 15;
@@ -517,7 +649,7 @@ function update() {
     }
 
     let spd = e.speed * slowFactor;
-    if (e.slowTimer > 0) spd *= 0.7; // elemental slow
+    if (e.slowTimer > 0) spd *= Math.max(0.1, 0.7 - upgrades.slowStrength / 100); // elemental slow
     e.x += (dx / dist) * spd;
     e.y += (dy / dist) * spd;
   }
@@ -529,12 +661,14 @@ function update() {
     attackTimer = 0;
     const weaponCount = 1 + upgrades.weaponCount;
 
-    // Sort enemies by distance to center
-    const sorted = [...enemies].sort((a, b) => {
-      const da = Math.sqrt((a.x - CX) ** 2 + (a.y - CY) ** 2);
-      const db = Math.sqrt((b.x - CX) ** 2 + (b.y - CY) ** 2);
-      return da - db;
-    });
+    // Sort enemies by distance to center, skip those already doomed
+    const sorted = [...enemies]
+      .filter(e => getEffectiveHp(e) > 0)
+      .sort((a, b) => {
+        const da = Math.sqrt((a.x - CX) ** 2 + (a.y - CY) ** 2);
+        const db = Math.sqrt((b.x - CX) ** 2 + (b.y - CY) ** 2);
+        return da - db;
+      });
 
     for (let w = 0; w < Math.min(weaponCount, sorted.length); w++) {
       fireProjectile(sorted[w]);
@@ -601,6 +735,33 @@ function update() {
             if (e.hp <= 0) killEnemy(j);
           }
         }
+      }
+    }
+  }
+
+  // Fire: Heat Aura — damage nearby enemies every second
+  if (upgrades.damageAura > 0 && frameCount % 60 === 0) {
+    const auraRange = 120;
+    spawnAoeRing(CX, CY, auraRange, '#ff4400', 30);
+    for (let j = enemies.length - 1; j >= 0; j--) {
+      const e = enemies[j];
+      const d = Math.sqrt((e.x - CX) ** 2 + (e.y - CY) ** 2);
+      if (d < auraRange) {
+        e.hp -= upgrades.damageAura;
+        spawnParticles(e.x, e.y, '#ff4400', 1);
+        if (e.hp <= 0) killEnemy(j);
+      }
+    }
+  }
+
+  // Ice: Chill Aura — passively slow nearby enemies
+  if (upgrades.chillAura > 0 && frameCount % 30 === 0) {
+    const chillRange = 50;
+    spawnAoeRing(CX, CY, chillRange, '#80d0ff', 20);
+    for (const e of enemies) {
+      const d = Math.sqrt((e.x - CX) ** 2 + (e.y - CY) ** 2);
+      if (d < chillRange) {
+        e.slowTimer = Math.max(e.slowTimer, 60);
       }
     }
   }
@@ -723,8 +884,8 @@ function fireProjectile(target) {
   if (dist === 0) return;
 
   const element = player.element || 'none';
-  let speed = 3;
-  if (element === 'wind' && player.potLevel >= 1) speed = 4.5;
+  let speed = 3 + upgrades.projSpeed * 0.5;
+  if (element === 'wind' && player.potLevel >= 1) speed = 4.5 + upgrades.projSpeed * 0.5;
 
   const damage = 10 + upgrades.attackDamage * 5;
 
@@ -735,7 +896,59 @@ function fireProjectile(target) {
     damage,
     element,
     life: 200,
+    target,
   });
+}
+
+function getEffectiveHp(enemy) {
+  // Calculate HP remaining after all projectiles already targeting this enemy land
+  let incoming = 0;
+  for (const p of projectiles) {
+    if (p.target === enemy) incoming += p.damage;
+  }
+  return enemy.hp - incoming;
+}
+
+function fireRicochets(source, count, damage, depth) {
+  const element = player.element || 'none';
+  let speed = 3 + upgrades.projSpeed * 0.5;
+  if (element === 'wind') speed = 4.5 + upgrades.projSpeed * 0.5;
+
+  const targeted = new Set([source]);
+
+  for (let i = 0; i < count; i++) {
+    // Find closest enemy with effective HP > 0 that we haven't targeted
+    let best = null, bestDist = Infinity;
+    for (const e of enemies) {
+      if (targeted.has(e)) continue;
+      if (getEffectiveHp(e) <= 0) continue;
+      const d = Math.sqrt((e.x - source.x) ** 2 + (e.y - source.y) ** 2);
+      if (d < bestDist) {
+        best = e;
+        bestDist = d;
+      }
+    }
+    if (!best) break;
+    targeted.add(best);
+
+    const dx = best.x - source.x;
+    const dy = best.y - source.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist === 0) continue;
+
+    projectiles.push({
+      x: source.x, y: source.y,
+      vx: (dx / dist) * speed,
+      vy: (dy / dist) * speed,
+      damage,
+      element,
+      life: 200,
+      target: best,
+      ricochetDepth: depth,
+    });
+
+    spawnParticles(source.x, source.y, '#80e0d0', 2);
+  }
 }
 
 function applyProjectileHit(proj, enemy, enemyIdx) {
@@ -752,11 +965,13 @@ function applyProjectileHit(proj, enemy, enemyIdx) {
     }
     // Lv2: AoE explosion
     if (potLv >= 2) {
+      const aoeR = 28 + upgrades.aoeRadius;
+      spawnAoeRing(enemy.x, enemy.y, aoeR, '#ff6600', 15);
       for (let j = enemies.length - 1; j >= 0; j--) {
         if (j === enemyIdx) continue;
         const e2 = enemies[j];
         const d = Math.sqrt((e2.x - enemy.x) ** 2 + (e2.y - enemy.y) ** 2);
-        if (d < 8) {
+        if (d < aoeR) {
           e2.hp -= Math.round(proj.damage * 0.3);
           spawnParticles(e2.x, e2.y, '#ff6600', 2);
           if (e2.hp <= 0) killEnemy(j);
@@ -772,13 +987,15 @@ function applyProjectileHit(proj, enemy, enemyIdx) {
     }
     // Lv2: AoE slow
     if (potLv >= 2) {
+      spawnAoeRing(enemy.x, enemy.y, 12, '#80d0ff', 15);
       for (const e2 of enemies) {
         const d = Math.sqrt((e2.x - enemy.x) ** 2 + (e2.y - enemy.y) ** 2);
         if (d < 12) e2.slowTimer = 120;
       }
     }
-    // Lv3: 15% freeze
-    if (potLv >= 3 && Math.random() < 0.15) {
+    // Lv3: freeze chance (base 15% + upgrade)
+    const freezePct = 0.15 + upgrades.freezeChance / 100;
+    if (potLv >= 3 && Math.random() < freezePct) {
       enemy.freezeTimer = 90;
     }
     spawnParticles(proj.x, proj.y, '#80d0ff', 3);
@@ -788,12 +1005,14 @@ function applyProjectileHit(proj, enemy, enemyIdx) {
       const dx = enemy.x - CX;
       const dy = enemy.y - CY;
       const d = Math.sqrt(dx * dx + dy * dy) || 1;
-      enemy.knockbackTimer = 8;
-      enemy.knockbackVx = (dx / d) * 2;
-      enemy.knockbackVy = (dy / d) * 2;
+      const kbForce = 2 + upgrades.knockbackForce;
+      enemy.knockbackTimer = 8 + Math.floor(upgrades.knockbackForce);
+      enemy.knockbackVx = (dx / d) * kbForce;
+      enemy.knockbackVy = (dy / d) * kbForce;
+      spawnAoeRing(enemy.x, enemy.y, 10 + upgrades.knockbackForce * 2, '#c0a060', 10);
     }
-    // Lv3: spawn rock barrier
-    if (potLv >= 3 && Math.random() < 0.2) {
+    // Lv3: spawn rock barrier (base 20% + upgrade)
+    if (potLv >= 3 && Math.random() < 0.2 + upgrades.barrierChance / 100) {
       particles.push({
         x: enemy.x, y: enemy.y,
         vx: 0, vy: 0,
@@ -804,24 +1023,10 @@ function applyProjectileHit(proj, enemy, enemyIdx) {
       });
     }
     spawnParticles(proj.x, proj.y, '#c0a060', 3);
-  } else if (element === 'wind') {
-    // Lv3: chain to 2 nearby enemies
-    if (potLv >= 3) {
-      let chainCount = 0;
-      for (const e2 of enemies) {
-        if (e2 === enemy || chainCount >= 2) break;
-        const d = Math.sqrt((e2.x - enemy.x) ** 2 + (e2.y - enemy.y) ** 2);
-        if (d < 30) {
-          e2.hp -= Math.round(proj.damage * 0.5);
-          spawnParticles(e2.x, e2.y, '#80e0d0', 2);
-          chainCount++;
-          if (e2.hp <= 0) {
-            const idx = enemies.indexOf(e2);
-            if (idx >= 0) killEnemy(idx);
-          }
-        }
-      }
-    }
+  } else if (element === 'wind' && (proj.ricochetDepth || 0) < upgrades.chainCount + 1) {
+    // Ricochet: fire projectiles from hit location, depth-limited
+    const ricochetDmg = Math.round(proj.damage * 0.5);
+    fireRicochets(enemy, 1, ricochetDmg, (proj.ricochetDepth || 0) + 1);
     spawnParticles(proj.x, proj.y, '#80e0d0', 3);
   } else {
     spawnParticles(proj.x, proj.y, '#ffffff', 2);
@@ -973,12 +1178,17 @@ function checkLevelUp() {
     expToNextLevel = Math.floor(10 * Math.pow(1.5, playerLevel - 1));
     generateUpgradeOptions();
   }
+  // Immediately show picker mid-wave so the game pauses for the choice
+  if (pendingUpgrades.length > 0 && !showingUpgradePicker) {
+    showUpgradePicker();
+  }
 }
 
 function generateUpgradeOptions() {
   const options = [];
   const used = new Set();
 
+  // 3 generic upgrade cards
   while (options.length < 3) {
     const idx = Math.floor(Math.random() * UPGRADE_DEFS.length);
     if (used.has(idx) && UPGRADE_DEFS.length >= 3) continue;
@@ -994,6 +1204,23 @@ function generateUpgradeOptions() {
       desc: def.desc,
       rarity,
       value,
+    });
+  }
+
+  // 4th card: elemental upgrade (if player has an element)
+  const elem = player.element;
+  const elemDefs = elem ? ELEMENTAL_UPGRADE_DEFS[elem] : null;
+  if (elemDefs && elemDefs.length > 0) {
+    const def = elemDefs[Math.floor(Math.random() * elemDefs.length)];
+    const rarity = rollRarity();
+    const value = def.values[rarity];
+    options.push({
+      key: def.key,
+      name: def.name,
+      desc: def.desc,
+      rarity,
+      value,
+      elemental: elem,
     });
   }
 
@@ -1014,7 +1241,7 @@ function applyUpgrade(option) {
   upgrades[option.key] += option.value;
   if (option.key === 'health') {
     player.maxHp += option.value;
-    player.hp += option.value;
+    player.hp = player.maxHp;
   }
 }
 
@@ -1029,7 +1256,51 @@ function showUpgradePicker() {
 
 function hideUpgradePicker() {
   showingUpgradePicker = false;
+  showingDeck = false;
   upgradeOptions = [];
+}
+
+const ELEMENT_CARD_BG = {
+  fire:  { outer: '#2a1208', inner: '#301810' },
+  ice:   { outer: '#0a1a2a', inner: '#101e2e' },
+  earth: { outer: '#1a1808', inner: '#221e10' },
+  wind:  { outer: '#0a2220', inner: '#102826' },
+};
+
+function getCardPositions() {
+  const cardW = 88;
+  const cardH = 100;
+  const gap = 10;
+  const topRow = upgradeOptions.filter(o => !o.elemental);
+  const elemCard = upgradeOptions.find(o => o.elemental);
+  const topCount = topRow.length;
+  const totalTopW = cardW * topCount + gap * (topCount - 1);
+  const topStartX = (W - totalTopW) / 2;
+  const topStartY = 65;
+
+  const positions = [];
+  for (let i = 0; i < upgradeOptions.length; i++) {
+    const opt = upgradeOptions[i];
+    if (!opt.elemental) {
+      const row1Idx = topRow.indexOf(opt);
+      positions.push({
+        x: topStartX + row1Idx * (cardW + gap),
+        y: topStartY,
+        w: cardW,
+        h: cardH,
+      });
+    } else {
+      // Center beneath the middle (2nd) card
+      const midX = topStartX + 1 * (cardW + gap);
+      positions.push({
+        x: midX,
+        y: topStartY + cardH + gap,
+        w: cardW,
+        h: cardH,
+      });
+    }
+  }
+  return { positions, cardW, cardH };
 }
 
 function renderUpgradePicker() {
@@ -1050,56 +1321,63 @@ function renderUpgradePicker() {
   const sw = ctx.measureText(sub).width;
   ctx.fillText(sub, (W - sw) / 2, 55);
 
-  // Cards
-  const cardW = 88;
-  const cardH = 120;
-  const gap = 10;
-  const totalW = cardW * 3 + gap * 2;
-  const startX = (W - totalW) / 2;
-  const startY = 70;
+  const { positions, cardW, cardH } = getCardPositions();
 
   for (let i = 0; i < upgradeOptions.length; i++) {
     const opt = upgradeOptions[i];
-    const cx = startX + i * (cardW + gap);
-    const cy = hoverCard === i ? startY - 5 : startY;
+    const pos = positions[i];
+    const cx = pos.x;
+    const cy = hoverCard === i ? pos.y - 5 : pos.y;
     const borderColor = RARITY_COLORS[opt.rarity] || '#888';
+    const isElemental = !!opt.elemental;
+    const elemBg = isElemental ? ELEMENT_CARD_BG[opt.elemental] : null;
 
     // Card background
-    ctx.fillStyle = '#1a1a12';
+    ctx.fillStyle = elemBg ? elemBg.outer : '#1a1a12';
     ctx.fillRect(cx, cy, cardW, cardH);
 
-    // Inner background (slightly lighter)
-    ctx.fillStyle = '#222218';
+    // Inner background
+    ctx.fillStyle = elemBg ? elemBg.inner : '#222218';
     ctx.fillRect(cx + 2, cy + 2, cardW - 4, cardH - 4);
 
-    // Border
-    ctx.strokeStyle = borderColor;
+    // Border — elemental cards use element color
+    const elemColor = isElemental ? ELEMENT_PROJ_COLORS[opt.elemental].main : null;
+    ctx.strokeStyle = isElemental ? elemColor : borderColor;
     ctx.lineWidth = hoverCard === i ? 3 : 2;
     ctx.strokeRect(cx, cy, cardW, cardH);
+
+    // Element tag for elemental cards
+    if (isElemental) {
+      ctx.fillStyle = elemColor;
+      ctx.font = '5px monospace';
+      const tag = opt.elemental.toUpperCase();
+      const tagW = ctx.measureText(tag).width;
+      ctx.fillText(tag, cx + cardW - tagW - 5, cy + 14);
+    }
 
     // Rarity label
     ctx.fillStyle = borderColor;
     ctx.font = '6px monospace';
-    ctx.fillText(opt.rarity, cx + 6, cy + 16);
+    ctx.fillText(opt.rarity, cx + 6, cy + 14);
 
     // Name
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = isElemental ? elemColor : '#ffffff';
     ctx.font = '7px monospace';
-    ctx.fillText(opt.name, cx + 6, cy + 34);
+    ctx.fillText(opt.name, cx + 6, cy + 28);
 
     // Description
     ctx.fillStyle = '#999999';
     ctx.font = '6px monospace';
     const lines = wrapText(opt.desc, cardW - 12, ctx);
     for (let l = 0; l < lines.length; l++) {
-      ctx.fillText(lines[l], cx + 6, cy + 50 + l * 10);
+      ctx.fillText(lines[l], cx + 6, cy + 42 + l * 10);
     }
 
     // Value — big and colored
-    ctx.fillStyle = borderColor;
+    ctx.fillStyle = isElemental ? elemColor : borderColor;
     ctx.font = '10px monospace';
     const valStr = `+${opt.value}`;
-    ctx.fillText(valStr, cx + 6, cy + cardH - 12);
+    ctx.fillText(valStr, cx + 6, cy + cardH - 10);
   }
 }
 
@@ -1123,16 +1401,11 @@ function wrapText(text, maxW, ctx) {
 function handleUpgradeClick(x, y) {
   if (!showingUpgradePicker) return false;
 
-  const cardW = 88;
-  const cardH = 120;
-  const gap = 10;
-  const totalW = cardW * 3 + gap * 2;
-  const startX = (W - totalW) / 2;
-  const startY = 70;
+  const { positions, cardW, cardH } = getCardPositions();
 
   for (let i = 0; i < upgradeOptions.length; i++) {
-    const cx = startX + i * (cardW + gap);
-    if (x >= cx && x <= cx + cardW && y >= startY - 5 && y <= startY + cardH) {
+    const pos = positions[i];
+    if (x >= pos.x && x <= pos.x + cardW && y >= pos.y - 5 && y <= pos.y + cardH) {
       applyUpgrade(upgradeOptions[i]);
       hideUpgradePicker();
       // Check if more pending
@@ -1148,21 +1421,256 @@ function handleUpgradeClick(x, y) {
 function handleUpgradeHover(x, y) {
   if (!showingUpgradePicker) return;
 
-  const cardW = 88;
-  const cardH = 120;
-  const gap = 10;
-  const totalW = cardW * 3 + gap * 2;
-  const startX = (W - totalW) / 2;
-  const startY = 70;
+  const { positions, cardW, cardH } = getCardPositions();
 
   hoverCard = -1;
   for (let i = 0; i < upgradeOptions.length; i++) {
-    const cx = startX + i * (cardW + gap);
-    if (x >= cx && x <= cx + cardW && y >= startY - 5 && y <= startY + cardH) {
+    const pos = positions[i];
+    if (x >= pos.x && x <= pos.x + cardW && y >= pos.y - 5 && y <= pos.y + cardH) {
       hoverCard = i;
       break;
     }
   }
+}
+
+// ── Deck View (all upgrades) ───────────────────────────────────────
+
+const DECK_BTN = { x: 270, y: 10, w: 40, h: 18 };
+const DECK_BACK_BTN = { x: 5, y: 5, w: 40, h: 18 };
+
+function renderDeckButton() {
+  const b = DECK_BTN;
+  ctx.fillStyle = '#333';
+  ctx.fillRect(b.x, b.y, b.w, b.h);
+  ctx.strokeStyle = '#888';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(b.x, b.y, b.w, b.h);
+  ctx.fillStyle = '#ccc';
+  ctx.font = '7px monospace';
+  ctx.fillText('Deck', b.x + 7, b.y + 13);
+}
+
+function renderDeck() {
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.95)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Back button
+  const bb = DECK_BACK_BTN;
+  ctx.fillStyle = '#333';
+  ctx.fillRect(bb.x, bb.y, bb.w, bb.h);
+  ctx.strokeStyle = '#888';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(bb.x, bb.y, bb.w, bb.h);
+  ctx.fillStyle = '#ccc';
+  ctx.font = '7px monospace';
+  ctx.fillText('Back', bb.x + 7, bb.y + 13);
+
+  // Title
+  ctx.fillStyle = '#ffdd00';
+  ctx.font = '9px monospace';
+  const title = 'All Upgrades';
+  const tw = ctx.measureText(title).width;
+  ctx.fillText(title, (W - tw) / 2, 18);
+
+  // Build list: generic upgrades, then elemental
+  const elem = player.element;
+  const allDefs = [];
+
+  for (const def of UPGRADE_DEFS) {
+    allDefs.push({ def, elemental: null });
+  }
+  if (elem && ELEMENTAL_UPGRADE_DEFS[elem]) {
+    for (const def of ELEMENTAL_UPGRADE_DEFS[elem]) {
+      allDefs.push({ def, elemental: elem });
+    }
+  }
+
+  // Layout: 3 columns
+  const colW = 100;
+  const rowH = 52;
+  const cols = 3;
+  const gap = 5;
+  const totalGridW = colW * cols + gap * (cols - 1);
+  const gridX = (W - totalGridW) / 2;
+  const gridY = 30;
+  const maxVisible = H - gridY - 5;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, gridY, W, maxVisible);
+  ctx.clip();
+
+  for (let i = 0; i < allDefs.length; i++) {
+    const { def, elemental: elemType } = allDefs[i];
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const cx = gridX + col * (colW + gap);
+    const cy = gridY + row * (rowH + gap) - deckScroll;
+
+    // Skip if off screen
+    if (cy + rowH < gridY || cy > H) continue;
+
+    const isElem = !!elemType;
+    const elemBg = isElem ? ELEMENT_CARD_BG[elemType] : null;
+    const elemColor = isElem ? ELEMENT_PROJ_COLORS[elemType].main : null;
+
+    // Card bg
+    ctx.fillStyle = elemBg ? elemBg.outer : '#1a1a12';
+    ctx.fillRect(cx, cy, colW, rowH);
+    ctx.fillStyle = elemBg ? elemBg.inner : '#222218';
+    ctx.fillRect(cx + 1, cy + 1, colW - 2, rowH - 2);
+
+    // Border
+    ctx.strokeStyle = isElem ? elemColor : '#555';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(cx, cy, colW, rowH);
+
+    // Name
+    ctx.fillStyle = isElem ? elemColor : '#ffffff';
+    ctx.font = '6px monospace';
+    ctx.fillText(def.name, cx + 4, cy + 12);
+
+    // Current level
+    const curVal = upgrades[def.key] || 0;
+    if (curVal > 0) {
+      ctx.fillStyle = '#ffdd00';
+      ctx.font = '5px monospace';
+      const lvStr = `+${curVal}`;
+      const lvW = ctx.measureText(lvStr).width;
+      ctx.fillText(lvStr, cx + colW - lvW - 4, cy + 12);
+    }
+
+    // Desc
+    ctx.fillStyle = '#888';
+    ctx.font = '5px monospace';
+    const lines = wrapText(def.desc, colW - 8, ctx);
+    for (let l = 0; l < Math.min(lines.length, 2); l++) {
+      ctx.fillText(lines[l], cx + 4, cy + 22 + l * 8);
+    }
+
+    // Element tag
+    if (isElem) {
+      ctx.fillStyle = elemColor;
+      ctx.font = '4px monospace';
+      ctx.fillText(elemType.toUpperCase(), cx + 4, cy + rowH - 4);
+    }
+
+    // Rarity range
+    const vals = def.values;
+    ctx.fillStyle = '#666';
+    ctx.font = '4px monospace';
+    const range = `${vals.Common}-${vals.Legendary}`;
+    const rw = ctx.measureText(range).width;
+    ctx.fillText(range, cx + colW - rw - 4, cy + rowH - 4);
+  }
+
+  ctx.restore();
+
+  // Scroll indicators
+  const totalRows = Math.ceil(allDefs.length / cols);
+  const totalH = totalRows * (rowH + gap);
+  if (totalH > maxVisible) {
+    const scrollBarH = Math.max(20, maxVisible * (maxVisible / totalH));
+    const scrollBarY = gridY + (deckScroll / (totalH - maxVisible)) * (maxVisible - scrollBarH);
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.fillRect(W - 4, scrollBarY, 3, scrollBarH);
+  }
+}
+
+function handleDeckClick(x, y) {
+  // Back button — return to upgrade picker or pause menu
+  const bb = DECK_BACK_BTN;
+  if (x >= bb.x && x <= bb.x + bb.w && y >= bb.y && y <= bb.y + bb.h) {
+    showingDeck = false;
+    return true;
+  }
+  return false;
+}
+
+function getDeckMaxScroll() {
+  const elem = player.element;
+  let count = UPGRADE_DEFS.length;
+  if (elem && ELEMENTAL_UPGRADE_DEFS[elem]) count += ELEMENTAL_UPGRADE_DEFS[elem].length;
+  const cols = 3;
+  const rowH = 52;
+  const gap = 5;
+  const totalRows = Math.ceil(count / cols);
+  const totalH = totalRows * (rowH + gap);
+  const maxVisible = H - 30 - 5;
+  return Math.max(0, totalH - maxVisible);
+}
+
+// ── Pause Menu ────────────────────────────────────────────────────
+
+const HAMBURGER_BTN = { x: 4, y: 4, w: 18, h: 16 };
+
+function renderHamburgerButton() {
+  if (showingUpgradePicker || showingPauseMenu) return;
+  const b = HAMBURGER_BTN;
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(b.x, b.y, b.w, b.h);
+  ctx.fillStyle = '#ccc';
+  for (let i = 0; i < 3; i++) {
+    ctx.fillRect(b.x + 4, b.y + 4 + i * 4, 10, 2);
+  }
+}
+
+const PAUSE_BTNS = {
+  resume:  { x: 110, y: 120, w: 100, h: 24, label: 'Resume' },
+  deck:    { x: 110, y: 152, w: 100, h: 24, label: 'Deck' },
+  retry:   { x: 110, y: 184, w: 100, h: 24, label: 'Retry' },
+  exit:    { x: 110, y: 216, w: 100, h: 24, label: 'Exit' },
+};
+
+function renderPauseMenu() {
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = '#ffdd00';
+  ctx.font = '12px monospace';
+  const title = 'Paused';
+  const tw = ctx.measureText(title).width;
+  ctx.fillText(title, (W - tw) / 2, 80);
+
+  ctx.font = '7px monospace';
+  ctx.fillStyle = '#888';
+  const info = `Wave ${wave}  |  Lv.${playerLevel}  |  Score ${score}`;
+  const iw = ctx.measureText(info).width;
+  ctx.fillText(info, (W - iw) / 2, 100);
+
+  for (const key of Object.keys(PAUSE_BTNS)) {
+    const b = PAUSE_BTNS[key];
+    ctx.fillStyle = key === 'exit' ? '#3a1a1a' : '#222';
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+    ctx.strokeStyle = key === 'exit' ? '#aa4444' : '#666';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(b.x, b.y, b.w, b.h);
+    ctx.fillStyle = key === 'exit' ? '#ff6666' : '#ccc';
+    ctx.font = '8px monospace';
+    const lw = ctx.measureText(b.label).width;
+    ctx.fillText(b.label, b.x + (b.w - lw) / 2, b.y + 16);
+  }
+}
+
+function handlePauseMenuClick(x, y) {
+  for (const [key, b] of Object.entries(PAUSE_BTNS)) {
+    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+      if (key === 'resume') {
+        showingPauseMenu = false;
+      } else if (key === 'deck') {
+        showingDeck = true;
+        deckScroll = 0;
+      } else if (key === 'retry') {
+        showingPauseMenu = false;
+        beginGame();
+      } else if (key === 'exit') {
+        showingPauseMenu = false;
+        handleBack();
+      }
+      return true;
+    }
+  }
+  return false;
 }
 
 // ── Particles ──────────────────────────────────────────────────────
@@ -1181,6 +1689,30 @@ function spawnParticles(x, y, color, count) {
       size: 1 + Math.floor(Math.random() * 2),
     });
   }
+}
+
+function spawnAoeRing(x, y, radius, color, duration) {
+  particles.push({
+    x, y,
+    vx: 0, vy: 0,
+    life: duration,
+    maxLife: duration,
+    color,
+    size: radius,
+    isAoeRing: true,
+  });
+}
+
+function spawnChainLine(x1, y1, x2, y2, color, duration) {
+  particles.push({
+    x: x1, y: y1,
+    vx: x2, vy: y2, // reuse vx/vy as target coords
+    life: duration,
+    maxLife: duration,
+    color,
+    size: 0,
+    isChainLine: true,
+  });
 }
 
 // ── Rendering ──────────────────────────────────────────────────────
@@ -1275,9 +1807,42 @@ function render() {
     renderProjectile(p);
   }
 
+  // AoE rings
+  for (const p of particles) {
+    if (!p.isAoeRing) continue;
+    const t = 1 - p.life / p.maxLife; // 0 → 1 over lifetime
+    const curR = p.size * t; // expand from 0 to full radius
+    const alpha = (1 - t) * 0.7;
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = p.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, curR, 0, Math.PI * 2);
+    ctx.stroke();
+    // Inner fill
+    ctx.globalAlpha = alpha * 0.15;
+    ctx.fillStyle = p.color;
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // Chain lines
+  for (const p of particles) {
+    if (!p.isChainLine) continue;
+    const alpha = (p.life / p.maxLife) * 0.8;
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = p.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.vx, p.vy); // vx/vy store target coords
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
   // Particles (non-special)
   for (const p of particles) {
-    if (p.isFireTrail || p.isRockBarrier) continue;
+    if (p.isFireTrail || p.isRockBarrier || p.isAoeRing || p.isChainLine) continue;
     const alpha = p.life / p.maxLife;
     ctx.globalAlpha = alpha;
     ctx.fillStyle = p.color;
@@ -1315,6 +1880,16 @@ function render() {
       ctx.fillText('TAP', CX + 28, CY - barOffsetY - 3);
       ctx.globalAlpha = 1;
     }
+  }
+
+  // Evade % for wind element
+  if (player.element === 'wind') {
+    const evadePct = Math.min(upgrades.dodgeChance, 100);
+    ctx.fillStyle = '#80e0d0';
+    ctx.font = '5px monospace';
+    const evadeStr = `Evade ${evadePct}%`;
+    const ew = ctx.measureText(evadeStr).width;
+    ctx.fillText(evadeStr, CX - ew / 2, CY - barOffsetY + 1);
   }
 
   // Damage flash
@@ -1360,19 +1935,45 @@ function render() {
 
   // Upgrade picker overlay
   if (showingUpgradePicker) {
-    renderUpgradePicker();
+    if (showingDeck) {
+      renderDeck();
+    } else {
+      renderUpgradePicker();
+    }
+  }
+
+  // Pause menu overlay
+  if (showingPauseMenu) {
+    if (showingDeck) {
+      renderDeck();
+    } else {
+      renderPauseMenu();
+    }
+  }
+
+  // Hamburger button (during gameplay, not during overlays)
+  if (gameStarted && running && !showingUpgradePicker && !showingPauseMenu) {
+    renderHamburgerButton();
   }
 
   ctx.restore();
 }
 
 function renderEnemy(e) {
-  const bx = Math.round(e.x - e.w / 2);
-  const by = Math.round(e.y - e.h / 2);
   const f = e.frame;
   const p = 2; // pixel size for chunky pixel art
 
   ctx.save();
+
+  // Flip sprite if enemy is to the left of center (so it faces the plant)
+  const facingRight = e.x < CX;
+  if (facingRight) {
+    ctx.translate(Math.round(e.x) * 2, 0);
+    ctx.scale(-1, 1);
+  }
+
+  const bx = Math.round(e.x - e.w / 2);
+  const by = Math.round(e.y - e.h / 2);
 
   // Freeze tint
   if (e.freezeTimer > 0) {
@@ -1642,13 +2243,29 @@ function onClick(e) {
   const x = (e.clientX - rect.left) * scaleX;
   const y = (e.clientY - rect.top) * scaleY;
 
+  // Deck view (shared between upgrade picker and pause menu)
+  if (showingDeck) {
+    handleDeckClick(x, y);
+    return;
+  }
+
+  if (showingPauseMenu) {
+    handlePauseMenuClick(x, y);
+    return;
+  }
+
   if (showingUpgradePicker) {
     handleUpgradeClick(x, y);
     return;
   }
 
-  // Activate ability on click/touch
+  // Hamburger button
   if (gameStarted && running) {
+    const hb = HAMBURGER_BTN;
+    if (x >= hb.x && x <= hb.x + hb.w && y >= hb.y && y <= hb.y + hb.h) {
+      showingPauseMenu = true;
+      return;
+    }
     activateAbility();
   }
 }
@@ -1669,10 +2286,17 @@ function onTouchStart(e) {
   onClick({ clientX: touch.clientX, clientY: touch.clientY });
 }
 
+function onWheel(e) {
+  if (!showingDeck) return;
+  e.preventDefault();
+  deckScroll = Math.max(0, Math.min(getDeckMaxScroll(), deckScroll + e.deltaY * 0.5));
+}
+
 function addInputListeners() {
   canvas.addEventListener('click', onClick);
   canvas.addEventListener('mousemove', onMouseMove);
   canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+  canvas.addEventListener('wheel', onWheel, { passive: false });
 }
 
 function removeInputListeners() {
@@ -1680,4 +2304,5 @@ function removeInputListeners() {
   canvas.removeEventListener('click', onClick);
   canvas.removeEventListener('mousemove', onMouseMove);
   canvas.removeEventListener('touchstart', onTouchStart);
+  canvas.removeEventListener('wheel', onWheel);
 }

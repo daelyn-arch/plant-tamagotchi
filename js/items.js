@@ -137,12 +137,22 @@ export const ITEM_TYPES = {
     },
     value: 1,
   },
+  sunglasses: {
+    name: 'Cool Shades',
+    icon: '\u25D0',
+    description: 'Gives an animated plant a pair of sunglasses.',
+    getDescription() {
+      return 'Equip sunglasses on an animated plant (cosmetic).';
+    },
+    value: 1,
+  },
   pot_fire: {
     name: 'Ember Crown',
     icon: '^',
     description: 'Transforms a plant\'s pot into a blazing ember pot.',
-    getDescription() {
-      return 'Elemental pot: fire theme.';
+    getDescription(rarity) {
+      const lvl = { [RARITY.UNCOMMON]: 0, [RARITY.RARE]: 1, [RARITY.EPIC]: 2, [RARITY.LEGENDARY]: 3 }[rarity] || 0;
+      return `Elemental pot: fire theme. Starts at Lv.${lvl}.`;
     },
     value: 1,
   },
@@ -150,8 +160,9 @@ export const ITEM_TYPES = {
     name: 'Frost Shard',
     icon: '\u2746',
     description: 'Transforms a plant\'s pot into a frozen crystal pot.',
-    getDescription() {
-      return 'Elemental pot: ice theme.';
+    getDescription(rarity) {
+      const lvl = { [RARITY.UNCOMMON]: 0, [RARITY.RARE]: 1, [RARITY.EPIC]: 2, [RARITY.LEGENDARY]: 3 }[rarity] || 0;
+      return `Elemental pot: ice theme. Starts at Lv.${lvl}.`;
     },
     value: 1,
   },
@@ -159,8 +170,9 @@ export const ITEM_TYPES = {
     name: 'Stone Heart',
     icon: '\u25A0',
     description: 'Transforms a plant\'s pot into a rugged stone pot.',
-    getDescription() {
-      return 'Elemental pot: earth theme.';
+    getDescription(rarity) {
+      const lvl = { [RARITY.UNCOMMON]: 0, [RARITY.RARE]: 1, [RARITY.EPIC]: 2, [RARITY.LEGENDARY]: 3 }[rarity] || 0;
+      return `Elemental pot: earth theme. Starts at Lv.${lvl}.`;
     },
     value: 1,
   },
@@ -168,8 +180,9 @@ export const ITEM_TYPES = {
     name: 'Gale Feather',
     icon: '\u2248',
     description: 'Transforms a plant\'s pot into an airy breeze pot.',
-    getDescription() {
-      return 'Elemental pot: wind theme.';
+    getDescription(rarity) {
+      const lvl = { [RARITY.UNCOMMON]: 0, [RARITY.RARE]: 1, [RARITY.EPIC]: 2, [RARITY.LEGENDARY]: 3 }[rarity] || 0;
+      return `Elemental pot: wind theme. Starts at Lv.${lvl}.`;
     },
     value: 1,
   },
@@ -182,6 +195,11 @@ export function createItem(type, rarity) {
 
   // Life Spark is always Legendary
   if (type === 'animate') rarity = RARITY.LEGENDARY;
+  // Rain Charm and Prism Shard are always Rare; Cool Shades always Legendary
+  if (type === 'auto_water' || type === 'art_reroll') rarity = RARITY.RARE;
+  if (type === 'sunglasses') rarity = RARITY.LEGENDARY;
+  // Elemental pots: minimum Uncommon (no Common version)
+  if (type.startsWith('pot_') && rarityIndex(rarity) < rarityIndex(RARITY.UNCOMMON)) rarity = RARITY.UNCOMMON;
 
   const value = type === 'garden_upgrade'
     ? 1 + (UPGRADE_PCT_BY_RARITY[rarity] || 5) / 100
@@ -225,31 +243,31 @@ const DROP_TABLES = {
     chance: 0.10,
     secondChance: 0,
     maxItemRarity: 0, // Common only
-    weights: { watering_boost: 30, day_boost: 10, art_reroll: 20, auto_water: 5, garden_upgrade: 3, plant_combine: 2, pot_fire: 2, pot_ice: 2, pot_earth: 2, pot_wind: 2 },
+    weights: { watering_boost: 30, day_boost: 10, art_reroll: 20, auto_water: 5, garden_upgrade: 3, plant_combine: 2, sunglasses: 1, pot_fire: 2, pot_ice: 2, pot_earth: 2, pot_wind: 2 },
   },
   [RARITY.UNCOMMON]: {
     chance: 0.25,
     secondChance: 0,
     maxItemRarity: 1, // Up to Uncommon
-    weights: { watering_boost: 25, day_boost: 15, art_reroll: 20, auto_water: 10, garden_upgrade: 5, plant_combine: 5, pot_fire: 2, pot_ice: 2, pot_earth: 2, pot_wind: 2 },
+    weights: { watering_boost: 25, day_boost: 15, art_reroll: 20, auto_water: 10, garden_upgrade: 5, plant_combine: 5, sunglasses: 1, pot_fire: 2, pot_ice: 2, pot_earth: 2, pot_wind: 2 },
   },
   [RARITY.RARE]: {
     chance: 0.50,
     secondChance: 0,
     maxItemRarity: 2, // Up to Rare
-    weights: { watering_boost: 20, day_boost: 20, art_reroll: 15, auto_water: 15, garden_upgrade: 10, plant_combine: 10, pot_fire: 3, pot_ice: 3, pot_earth: 3, pot_wind: 3 },
+    weights: { watering_boost: 20, day_boost: 20, art_reroll: 15, auto_water: 15, garden_upgrade: 10, plant_combine: 10, sunglasses: 2, pot_fire: 3, pot_ice: 3, pot_earth: 3, pot_wind: 3 },
   },
   [RARITY.EPIC]: {
     chance: 0.75,
     secondChance: 0.25,
     maxItemRarity: 3, // Up to Epic
-    weights: { watering_boost: 15, day_boost: 20, art_reroll: 10, auto_water: 15, garden_upgrade: 15, plant_combine: 15, pot_fire: 3, pot_ice: 3, pot_earth: 3, pot_wind: 3 },
+    weights: { watering_boost: 15, day_boost: 20, art_reroll: 10, auto_water: 15, garden_upgrade: 15, plant_combine: 15, sunglasses: 3, pot_fire: 3, pot_ice: 3, pot_earth: 3, pot_wind: 3 },
   },
   [RARITY.LEGENDARY]: {
     chance: 1.0,
     secondChance: 0.50,
     maxItemRarity: 4, // Any rarity
-    weights: { watering_boost: 10, day_boost: 15, art_reroll: 10, auto_water: 15, garden_upgrade: 20, plant_combine: 20, pot_fire: 4, pot_ice: 4, pot_earth: 4, pot_wind: 4 },
+    weights: { watering_boost: 10, day_boost: 15, art_reroll: 10, auto_water: 15, garden_upgrade: 20, plant_combine: 20, sunglasses: 4, pot_fire: 4, pot_ice: 4, pot_earth: 4, pot_wind: 4 },
   },
 };
 
@@ -362,6 +380,26 @@ export function useAnimate(state, itemId, plantId) {
   return true;
 }
 
+// Use sunglasses item — gives an animated plant sunglasses
+export function useSunglasses(state, itemId, plantId) {
+  const item = state.items.find(i => i.id === itemId && i.type === 'sunglasses');
+  if (!item) return false;
+
+  let target = null;
+  if (state.currentPlant && state.currentPlant.id === plantId) {
+    target = state.currentPlant;
+  } else {
+    target = state.garden.find(p => p.id === plantId);
+  }
+  if (!target) return false;
+  if (!target.animated) return false; // must be animated first
+  if (target.sunglasses) return false; // already has sunglasses
+
+  target.sunglasses = true;
+  removeItem(state, itemId);
+  return true;
+}
+
 // Use elemental pot item on a plant (current or garden)
 export function usePotElement(state, itemId, plantId) {
   const item = state.items.find(i => i.id === itemId && i.type.startsWith('pot_'));
@@ -375,7 +413,14 @@ export function usePotElement(state, itemId, plantId) {
   }
   if (!target) return false;
 
-  target.potElement = item.type.replace('pot_', '');
+  const element = item.type.replace('pot_', '');
+  target.potElement = element;
+  // Starting pot level based on item rarity: Uncommon=0, Rare=1, Epic=2, Legendary=3
+  const RARITY_START_LEVEL = { [RARITY.UNCOMMON]: 0, [RARITY.RARE]: 1, [RARITY.EPIC]: 2, [RARITY.LEGENDARY]: 3 };
+  const startLevel = RARITY_START_LEVEL[item.rarity] || 0;
+  const startExp = [0, 50, 150, 300][startLevel] || 0;
+  target.potLevel = Math.max(target.potLevel || 0, startLevel);
+  target.potExp = Math.max(target.potExp || 0, startExp);
   removeItem(state, itemId);
   return true;
 }
@@ -471,6 +516,7 @@ export function combinePlants(state, itemId, plantId1, plantId2) {
     bonusDay: combinedDay,
     bonusPassive: hasPassive,
     animated: !!(p1.animated || p2.animated),
+    sunglasses: !!(p1.sunglasses || p2.sunglasses),
     autoWater: false,
     potElement: p1.potElement || p2.potElement || undefined,
     potExp: Math.max(p1.potExp || 0, p2.potExp || 0),

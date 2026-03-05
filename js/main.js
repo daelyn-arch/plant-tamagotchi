@@ -69,31 +69,14 @@ function init() {
     switchToInfo();
   });
 
-  // Games popup — positioned to the left of the Games button
-  document.getElementById('gamesBtn').addEventListener('click', (e) => {
-    e.stopPropagation();
-    const popup = document.getElementById('gamesPopup');
-    const wasOpen = popup.style.display !== 'none';
+  // Games menu — replaces actions area content
+  document.getElementById('gamesBtn').addEventListener('click', () => {
     closeAllPopups();
-    if (!wasOpen) {
-      popup.style.display = '';
-      const btn = document.getElementById('gamesBtn');
-      const btnRect = btn.getBoundingClientRect();
-      const screen = btn.closest('.plant-screen');
-      const screenRect = screen.getBoundingClientRect();
-      popup.style.left = (btnRect.left - screenRect.left - popup.offsetWidth - 8) + 'px';
-      popup.style.top = (btnRect.top - screenRect.top) + 'px';
-    }
+    showGamesMenu();
   });
 
-  document.getElementById('gameRunnerBtn').addEventListener('click', () => {
-    closeAllPopups();
-    switchToMinigame();
-  });
-
-  document.getElementById('gameTdBtn').addEventListener('click', () => {
-    closeAllPopups();
-    switchToTowerDefense();
+  document.getElementById('gamesBackBtn').addEventListener('click', () => {
+    hideGamesMenu();
   });
 
   // Bonuses popup
@@ -107,7 +90,7 @@ function init() {
 
   // Close popups on outside click
   document.addEventListener('click', (e) => {
-    if (!e.target.closest('.popup-menu') && !e.target.closest('#gamesBtn') && !e.target.closest('#bonusesBtn')) {
+    if (!e.target.closest('.popup-menu') && !e.target.closest('#bonusesBtn')) {
       closeAllPopups();
     }
   });
@@ -384,14 +367,165 @@ function switchToTowerDefense() {
 }
 
 function updateTdButton(state) {
-  const tdItem = document.getElementById('gameTdBtn');
-  if (!tdItem) return;
-  const hasEligible = state.garden && state.garden.some(p => p.animated);
-  tdItem.style.display = (state.stats.tdUnlocked && hasEligible) ? '' : 'none';
+  // No-op: TD visibility is now handled by showGamesMenu()
+}
+
+function showGamesMenu() {
+  const state = loadState();
+  const actionsMain = document.getElementById('actionsMain');
+  const gamesMenu = document.getElementById('gamesMenu');
+  const grid = document.getElementById('gamesMenuGrid');
+
+  actionsMain.style.display = 'none';
+  gamesMenu.style.display = '';
+
+  // Determine game states
+  const hasAnimated = state.garden && state.garden.some(p => p.animated);
+  const tdUnlocked = state.stats.tdUnlocked && hasAnimated;
+
+  const games = [
+    { id: 'runner', name: 'Plant Runner', unlocked: true, launch: switchToMinigame },
+    { id: 'td', name: 'Stop the Bugs', unlocked: tdUnlocked, launch: switchToTowerDefense },
+  ];
+
+  grid.innerHTML = '';
+  for (const game of games) {
+    const card = document.createElement('div');
+    card.className = 'game-card' + (game.unlocked ? '' : ' game-card-locked');
+
+    if (game.unlocked) {
+      card.innerHTML = `<div class="game-card-name">${game.name}</div>`;
+      card.addEventListener('click', () => {
+        hideGamesMenu();
+        game.launch();
+      });
+    } else {
+      // Entire card is a locked chest
+      card.innerHTML = `<canvas class="game-card-chest"></canvas>`;
+      setTimeout(() => {
+        const canvas = card.querySelector('.game-card-chest');
+        if (canvas) {
+          const w = card.clientWidth;
+          const h = card.clientHeight;
+          canvas.width = w;
+          canvas.height = h;
+          drawLockedChest(canvas, w, h);
+        }
+      }, 0);
+    }
+
+    grid.appendChild(card);
+  }
+}
+
+function hideGamesMenu() {
+  document.getElementById('actionsMain').style.display = '';
+  document.getElementById('gamesMenu').style.display = 'none';
+}
+
+function drawLockedChest(canvas, w, h) {
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  const cx = Math.floor(w / 2);
+  const cy = Math.floor(h / 2);
+
+  // Pixel size — scale to card
+  const px = Math.max(2, Math.floor(Math.min(w, h) / 20));
+
+  function rect(x, y, rw, rh, color) {
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, rw, rh);
+  }
+
+  // Chest dimensions — wide rectangle filling most of the card
+  const chestW = Math.floor(w * 0.8);
+  const chestH = Math.floor(h * 0.5);
+  const lidH = Math.floor(chestH * 0.3);
+  const bodyH = chestH - lidH;
+  const chestX = cx - Math.floor(chestW / 2);
+  const chestY = cy - Math.floor(chestH / 2) + Math.floor(px * 1.5);
+
+  // Chest lid — lighter metal
+  rect(chestX, chestY, chestW, lidH, '#6a6a7a');
+  // Lid top highlight
+  rect(chestX, chestY, chestW, px, '#8a8a9a');
+  // Lid bottom edge
+  rect(chestX, chestY + lidH - px, chestW, px, '#4a4a5a');
+
+  // Chest body — darker metal
+  rect(chestX, chestY + lidH, chestW, bodyH, '#5a5a6a');
+  // Body bottom shadow
+  rect(chestX, chestY + chestH - px, chestW, px, '#3a3a4a');
+  // Metal band across body
+  const bandY = chestY + lidH + Math.floor(bodyH * 0.45);
+  rect(chestX, bandY, chestW, px, '#4a4a5a');
+
+  // Rivets on band
+  const rivetInset = Math.floor(chestW * 0.1);
+  rect(chestX + rivetInset, bandY, px, px, '#9a9aaa');
+  rect(chestX + chestW - rivetInset - px, bandY, px, px, '#9a9aaa');
+  // Rivets on lid edge
+  rect(chestX + rivetInset, chestY + lidH - px, px, px, '#9a9aaa');
+  rect(chestX + chestW - rivetInset - px, chestY + lidH - px, px, px, '#9a9aaa');
+
+  // Lock — gold padlock centered
+  const lockW = px * 4;
+  const lockH = px * 3;
+  const lockX = cx - Math.floor(lockW / 2);
+  const lockY = chestY + lidH + Math.floor((bodyH - lockH) / 2) - px;
+  // Shackle (arch above lock body)
+  rect(lockX + px, lockY - px * 2, lockW - px * 2, px, '#c09020');
+  rect(lockX, lockY - px, px, px * 2, '#c09020');
+  rect(lockX + lockW - px, lockY - px, px, px * 2, '#c09020');
+  // Lock body
+  rect(lockX, lockY + px, lockW, lockH, '#d4a830');
+  // Lock body shadow
+  rect(lockX, lockY + px + lockH - px, lockW, px, '#b08820');
+  // Keyhole
+  rect(cx - Math.floor(px / 2), lockY + px + Math.floor(lockH * 0.3), px, px, '#2a2a20');
+
+  // Vines growing over the chest
+  const vine = '#3a7a3a';
+  const vineDk = '#2a6a2a';
+  const leaf = '#4a9a40';
+  const leafLt = '#5aaa4a';
+
+  // Left vine — climbing up from bottom-left
+  const vlx = chestX - px * 2;
+  for (let i = 0; i < 7; i++) {
+    rect(vlx + (i % 2) * px, chestY + chestH - i * px * 1.5, px, px * 2, vine);
+  }
+  // Left leaves
+  rect(vlx - px, chestY + chestH - px * 3, px * 2, px, leaf);
+  rect(vlx - px * 2, chestY + chestH - px * 6, px * 2, px, leafLt);
+  rect(vlx + px, chestY + chestH - px * 8, px * 2, px, leaf);
+  // Vine creeping onto chest top
+  rect(chestX, chestY - px, px * 3, px, vine);
+  rect(chestX + px * 2, chestY - px * 2, px * 2, px, vineDk);
+  rect(chestX - px, chestY, px, px * 2, vine);
+  // Top leaves
+  rect(chestX + px * 3, chestY - px * 2, px * 2, px, leaf);
+  rect(chestX - px, chestY - px, px * 2, px, leafLt);
+
+  // Right vine — climbing from bottom-right
+  const vrx = chestX + chestW + px;
+  for (let i = 0; i < 6; i++) {
+    rect(vrx - (i % 2) * px, chestY + chestH - i * px * 1.6, px, px * 2, vine);
+  }
+  // Right leaves
+  rect(vrx + px, chestY + chestH - px * 4, px * 2, px, leaf);
+  rect(vrx, chestY + chestH - px * 7, px * 2, px, leafLt);
+  // Vine onto chest top-right
+  rect(chestX + chestW - px * 3, chestY - px, px * 3, px, vine);
+  rect(chestX + chestW + px, chestY, px, px * 2, vine);
+  // Top-right leaves
+  rect(chestX + chestW - px * 4, chestY - px * 2, px * 2, px, leaf);
+  rect(chestX + chestW + px, chestY - px, px * 2, px, leafLt);
+
 }
 
 function closeAllPopups() {
-  document.getElementById('gamesPopup').style.display = 'none';
   document.getElementById('bonusesPopup').style.display = 'none';
 }
 
@@ -453,11 +587,24 @@ function setupDevControls() {
     if (!state.items) state.items = [];
     const types = Object.keys(ITEM_TYPES);
     const rarities = [RARITY.COMMON, RARITY.UNCOMMON, RARITY.RARE, RARITY.EPIC, RARITY.LEGENDARY];
+    const fixedRarityTypes = ['animate', 'auto_water', 'art_reroll', 'sunglasses'];
+    const elementalTypes = ['pot_fire', 'pot_ice', 'pot_earth', 'pot_wind'];
+    const elementalRarities = [RARITY.UNCOMMON, RARITY.RARE, RARITY.EPIC, RARITY.LEGENDARY];
     let count = 0;
     for (const type of types) {
-      for (const rarity of rarities) {
-        state.items.push(createItem(type, rarity));
+      if (fixedRarityTypes.includes(type)) {
+        state.items.push(createItem(type, RARITY.COMMON));
         count++;
+      } else if (elementalTypes.includes(type)) {
+        for (const rarity of elementalRarities) {
+          state.items.push(createItem(type, rarity));
+          count++;
+        }
+      } else {
+        for (const rarity of rarities) {
+          state.items.push(createItem(type, rarity));
+          count++;
+        }
       }
     }
     saveState(state);
@@ -529,13 +676,53 @@ function setupDevControls() {
     });
   }
 
+  function devEnsureGamePlant(state) {
+    // Add a fully leveled animated Common plant if none exists
+    const hasAnimated = state.garden && state.garden.some(p => p.animated);
+    if (hasAnimated) return;
+    if (!state.garden) state.garden = [];
+    const today = todayStr();
+    state.garden.push({
+      id: Date.now().toString(36) + 'dev',
+      seed: 42,
+      species: 'Daisy',
+      rarity: RARITY.COMMON,
+      complexity: 2,
+      hasFlowers: true,
+      leafType: 'spatula',
+      flowerTemplate: 'daisy',
+      name: 'Daisy',
+      totalDaysRequired: 3,
+      daysGrown: 3,
+      growthStage: 1.0,
+      daysVisited: [],
+      dateReceived: today,
+      dateCompleted: today,
+      autoWater: false,
+      animated: true,
+      potElement: 'fire',
+      potLevel: 3,
+      potExp: 300,
+    });
+    state.stats.totalPlantsGrown = (state.stats.totalPlantsGrown || 0) + 1;
+  }
+
+  document.getElementById('devUnlockPR')?.addEventListener('click', () => {
+    const state = loadState();
+    devEnsureGamePlant(state);
+    saveState(state);
+    updatePlantView(loadState());
+    showToast('DEV: Plant Runner unlocked (animated plant added)', 'info');
+  });
+
   document.getElementById('devUnlockTD')?.addEventListener('click', () => {
     const state = loadState();
     state.stats.tdUnlocked = true;
     state.stats.bugKillsTotal = Math.max(state.stats.bugKillsTotal || 0, 10);
+    devEnsureGamePlant(state);
     saveState(state);
     updateTdButton(state);
-    showToast('DEV: Tower Defense unlocked', 'info');
+    showToast('DEV: Tower Defense unlocked (animated plant added)', 'info');
   });
 
   document.getElementById('devPotExp')?.addEventListener('click', () => {

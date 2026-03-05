@@ -23,6 +23,7 @@ const SPAWN_MAX_GAP = 200;
 const COLLISION_INSET = 3;
 const POT_HITBOX_W = 14;   // Universal pot collision width (obstacles hit this)
 const POT_HITBOX_H = 12;   // Universal pot collision height
+const PLANT_HITBOX_W = 1;  // Plant stem hitbox width (1px vertical line)
 const PLAYER_TARGET_H = 36;
 const CLOUD_COUNT = 6;
 
@@ -41,6 +42,7 @@ let playerW, playerH;
 let player, obstacles, speed, score, distance, frameCount;
 let spawnTimer;
 let clouds;
+let hills;        // parallax hill layers
 let groundOffset;
 let lastTimestamp;
 let gameOverTime; // timestamp when game over happened, to prevent instant restart
@@ -333,11 +335,14 @@ function resetGame() {
   for (let i = 0; i < CLOUD_COUNT; i++) {
     clouds.push({
       x: Math.random() * W,
-      y: 8 + Math.random() * 40,
-      w: 16 + Math.floor(Math.random() * 24),
-      speed: 0.2 + Math.random() * 0.3,
+      y: 6 + Math.random() * 30,
+      w: 20 + Math.floor(Math.random() * 28),
+      speed: 0.15 + Math.random() * 0.25,
     });
   }
+
+  // Parallax hills: far (slow), mid, near (fast)
+  hills = { farOffset: 0, midOffset: 0, nearOffset: 0 };
 }
 
 function beginGame() {
@@ -573,8 +578,13 @@ function update() {
     }
   }
 
-  // Scroll ground
+  // Scroll ground + parallax hills
   groundOffset = (groundOffset + speed) % 8;
+  if (hills) {
+    hills.farOffset += speed * 0.15;
+    hills.midOffset += speed * 0.35;
+    hills.nearOffset += speed * 0.6;
+  }
 
   // Update bug dialogues
   updateBugDialogues();
@@ -660,6 +670,13 @@ function checkCollisions() {
   const hx2 = potCenterX + POT_HITBOX_W / 2 - COLLISION_INSET;
   const hy2 = potBottom - COLLISION_INSET;
 
+  // Plant stem hitbox: 1px vertical line from top of pot up to top of plant
+  const plantTop = player.ducking ? (GROUND_Y - ph) : player.y;
+  const sx1 = potCenterX;
+  const sy1 = plantTop;
+  const sx2 = potCenterX + PLANT_HITBOX_W;
+  const sy2 = hy1; // top of pot hitbox
+
   const potElement = selectedPlant && selectedPlant.potElement;
 
   for (const obs of obstacles) {
@@ -706,8 +723,10 @@ function checkCollisions() {
     const ox2 = obs.x + obs.w - COLLISION_INSET;
     const oy2 = obs.y + obs.h - COLLISION_INSET;
 
-    // AABB overlap using pot hitbox for lethal collisions
-    if (hx1 < ox2 && hx2 > ox1 && hy1 < oy2 && hy2 > oy1) {
+    // AABB overlap using pot hitbox OR plant stem hitbox for lethal collisions
+    const hitPot = hx1 < ox2 && hx2 > ox1 && hy1 < oy2 && hy2 > oy1;
+    const hitStem = sx1 < ox2 && sx2 > ox1 && sy1 < oy2 && sy2 > oy1;
+    if (hitPot || hitStem) {
       // Earth armor: absorb one hit
       if (earthArmorActive) {
         earthArmorActive = false;
@@ -734,41 +753,97 @@ function checkCollisions() {
   return false;
 }
 
+// ── Background helpers ─────────────────────────────────────────────
+
+function drawHillLayer(ctx, offset, baseY, amplitude, period, colorFill, colorDark) {
+  const k1 = Math.PI * 2 / period;
+  const k2 = Math.PI * 2 / (period * 1.7);
+
+  ctx.fillStyle = colorFill;
+  ctx.beginPath();
+  ctx.moveTo(0, GROUND_Y);
+  for (let x = 0; x <= W; x++) {
+    const t = x + offset;
+    const y = baseY - amplitude * (
+      Math.sin(t * k1) * 0.6 +
+      Math.sin(t * k2 + 1.2) * 0.4
+    );
+    ctx.lineTo(x, y);
+  }
+  ctx.lineTo(W, GROUND_Y);
+  ctx.closePath();
+  ctx.fill();
+
+  // Subtle darker stripe at the base of each hill for depth
+  ctx.fillStyle = colorDark;
+  ctx.beginPath();
+  ctx.moveTo(0, GROUND_Y);
+  for (let x = 0; x <= W; x++) {
+    const t = x + offset;
+    const y = baseY - amplitude * 0.3 * (
+      Math.sin(t * k1) * 0.6 +
+      Math.sin(t * k2 + 1.2) * 0.4
+    );
+    ctx.lineTo(x, y);
+  }
+  ctx.lineTo(W, GROUND_Y);
+  ctx.closePath();
+  ctx.fill();
+}
+
 // ── Rendering ──────────────────────────────────────────────────────
 
 function render() {
-  // Clear — sky gradient
-  ctx.fillStyle = '#1a1a2e';
-  ctx.fillRect(0, 0, W, H);
-
-  // Sky gradient (subtle)
-  const grad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-  grad.addColorStop(0, '#1a1a2e');
-  grad.addColorStop(1, '#2d2d44');
-  ctx.fillStyle = grad;
+  // ── Vibrant sky gradient ──
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+  skyGrad.addColorStop(0, '#4ab8ff');
+  skyGrad.addColorStop(0.6, '#7ad0ff');
+  skyGrad.addColorStop(1, '#b0e8ff');
+  ctx.fillStyle = skyGrad;
   ctx.fillRect(0, 0, W, GROUND_Y);
 
-  // Clouds
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+  // ── Fluffy white clouds ──
   for (const cloud of clouds) {
-    ctx.fillRect(Math.round(cloud.x), cloud.y, cloud.w, 6);
-    ctx.fillRect(Math.round(cloud.x) + 4, cloud.y - 2, cloud.w - 8, 2);
-    ctx.fillRect(Math.round(cloud.x) + 2, cloud.y + 6, cloud.w - 4, 2);
+    const cx = Math.round(cloud.x);
+    const cy = cloud.y;
+    const cw = cloud.w;
+    // Cloud body — rounded pixel blob
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(cx + 4, cy - 4, cw - 8, 2);        // top tuft
+    ctx.fillRect(cx + 2, cy - 2, cw - 4, 2);         // upper
+    ctx.fillRect(cx, cy, cw, 4);                       // main body
+    ctx.fillRect(cx + 2, cy + 4, cw - 4, 2);          // lower
+    // Shading on bottom
+    ctx.fillStyle = '#d0e8f8';
+    ctx.fillRect(cx + 2, cy + 4, cw - 4, 2);
+    ctx.fillRect(cx + 4, cy + 2, cw - 8, 2);
   }
 
-  // Ground
-  ctx.fillStyle = '#3a2e1e';
+  // ── Parallax hills ──
+  if (hills) {
+    drawHillLayer(ctx, hills.farOffset, GROUND_Y - 20, 18, 80, '#88c870', '#78b860');
+    drawHillLayer(ctx, hills.midOffset, GROUND_Y - 8, 14, 60, '#60a840', '#50983a');
+    drawHillLayer(ctx, hills.nearOffset, GROUND_Y, 10, 50, '#48902e', '#3a8020');
+  }
+
+  // ── Green ground ──
+  ctx.fillStyle = '#3a7a20';
   ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
 
-  // Ground detail — scrolling dots
-  ctx.fillStyle = '#4a3e2e';
-  for (let x = -groundOffset; x < W; x += 12) {
+  // Ground detail — scrolling grass tufts
+  ctx.fillStyle = '#4a8a2a';
+  for (let x = -groundOffset; x < W; x += 10) {
     ctx.fillRect(Math.round(x), GROUND_Y + 2, 2, 2);
-    ctx.fillRect(Math.round(x) + 6, GROUND_Y + 6, 2, 2);
+    ctx.fillRect(Math.round(x) + 5, GROUND_Y + 5, 2, 2);
+  }
+  ctx.fillStyle = '#2a6a14';
+  for (let x = -groundOffset - 4; x < W; x += 14) {
+    ctx.fillRect(Math.round(x), GROUND_Y + 4, 2, 2);
+    ctx.fillRect(Math.round(x) + 7, GROUND_Y + 7, 2, 2);
   }
 
-  // Ground line
-  ctx.fillStyle = '#5a4e3e';
+  // Grass line on top of ground
+  ctx.fillStyle = '#5aaa38';
   ctx.fillRect(0, GROUND_Y, W, 2);
 
   // Obstacles
@@ -1376,17 +1451,20 @@ function updateCutscene() {
 }
 
 function renderCutscene() {
-  // Base scene
-  ctx.fillStyle = '#1a1a2e';
-  ctx.fillRect(0, 0, W, H);
-  const grad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-  grad.addColorStop(0, '#1a1a2e');
-  grad.addColorStop(1, '#2d2d44');
-  ctx.fillStyle = grad;
+  // Base scene — vibrant green world
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+  skyGrad.addColorStop(0, '#4ab8ff');
+  skyGrad.addColorStop(0.6, '#7ad0ff');
+  skyGrad.addColorStop(1, '#b0e8ff');
+  ctx.fillStyle = skyGrad;
   ctx.fillRect(0, 0, W, GROUND_Y);
-  ctx.fillStyle = '#3a2e1e';
+  // Static hills for cutscene
+  drawHillLayer(ctx, 0, GROUND_Y - 20, 18, 80, '#88c870', '#78b860');
+  drawHillLayer(ctx, 30, GROUND_Y - 8, 14, 60, '#60a840', '#50983a');
+  drawHillLayer(ctx, 60, GROUND_Y, 10, 50, '#48902e', '#3a8020');
+  ctx.fillStyle = '#3a7a20';
   ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
-  ctx.fillStyle = '#5a4e3e';
+  ctx.fillStyle = '#5aaa38';
   ctx.fillRect(0, GROUND_Y, W, 2);
 
   // Phase 0: Rumble + red tint

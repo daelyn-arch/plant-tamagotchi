@@ -1339,7 +1339,7 @@ function findFacePosition(ctx, size) {
   };
 }
 
-function drawFace(ctx, size, rng) {
+function drawFace(ctx, size, rng, hasSunglasses) {
   const pos = findFacePosition(ctx, size);
   const cx = pos.x;
   const cy = pos.y;
@@ -1413,6 +1413,59 @@ function drawFace(ctx, size, rng) {
 
   drawEye(lx, cy);
   drawEye(rx, cy);
+
+  // Sunglasses overlay
+  if (hasSunglasses) {
+    drawSunglasses(ctx, size, cx, cy, eyeR, eyeGap);
+  }
+}
+
+function drawSunglasses(ctx, size, cx, cy, eyeR, eyeGap) {
+  // "Deal with it" pixel sunglasses — trapezoidal lenses, flat top, angled bottom
+  const blk = '#000000';
+  const wht = '#ffffff';
+  const s = Math.max(1, Math.round(size / 32)); // pixel scale factor
+
+  // Total width of the shades scales with eye spacing
+  const halfW = eyeGap + eyeR + Math.round(s * 2);
+  const lensW = Math.max(3, Math.floor((halfW * 2 - s * 2) / 2)); // width of each lens
+  const bridgeW = Math.max(1, Math.round(s * 2)); // gap between lenses
+  const h = Math.max(3, Math.round(s * 3)); // lens height (rows)
+
+  // Top-left corner of the whole shades block
+  const totalW = lensW * 2 + bridgeW;
+  const startX = cx - Math.floor(totalW / 2);
+  const topY = cy - Math.floor(h / 2);
+
+  // Top bar — full width, 1 row thick
+  for (let x = startX - s; x < startX + totalW + s; x++) {
+    for (let t = 0; t < s; t++) {
+      setPixel(ctx, x, topY + t, blk);
+    }
+  }
+
+  // Draw one trapezoidal lens: full width at top, tapers 1px per row on each side
+  function drawLens(lx, ly) {
+    for (let row = 0; row < h; row++) {
+      const inset = row; // taper: each row loses 1px from each side
+      const rowStart = lx + inset;
+      const rowEnd = lx + lensW - inset;
+      if (rowStart >= rowEnd) break;
+      for (let x = rowStart; x < rowEnd; x++) {
+        setPixel(ctx, x, ly + s + row, blk);
+      }
+    }
+    // White glare pixels — 2 pixels in upper-right area of each lens
+    const glareX = lx + lensW - Math.max(2, Math.floor(lensW * 0.3));
+    const glareY = ly + s + 1;
+    setPixel(ctx, glareX, glareY, wht);
+    if (lensW > 4) setPixel(ctx, glareX + 1, glareY + 1, wht);
+  }
+
+  // Left lens
+  drawLens(startX, topY);
+  // Right lens
+  drawLens(startX + lensW + bridgeW, topY);
 }
 
 // ── Fusion shimmer ────────────────────────────────────────────────
@@ -3040,7 +3093,7 @@ export function renderPlant(plant, growthStage, frameOffset = 0) {
   if (plant.animated && growthStage >= 0.2) {
     const ctx = canvas.getContext('2d');
     const faceRng = createRng(plant.seed + 555);
-    drawFace(ctx, canvas.width, faceRng);
+    drawFace(ctx, canvas.width, faceRng, plant.sunglasses);
   }
 
   return canvas;
