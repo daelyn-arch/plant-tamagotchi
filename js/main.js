@@ -366,6 +366,10 @@ function switchToTowerDefense() {
   });
 }
 
+function switchToCitadel() {
+  showToast('The Dark Citadel awaits... Coming soon!');
+}
+
 function updateTdButton(state) {
   // No-op: TD visibility is now handled by showGamesMenu()
 }
@@ -386,6 +390,7 @@ function showGamesMenu() {
   const games = [
     { id: 'runner', name: 'Plant Runner', unlocked: true, launch: switchToMinigame },
     { id: 'td', name: 'Stop the Bugs', unlocked: tdUnlocked, launch: switchToTowerDefense },
+    { id: 'citadel', name: 'Dark Citadel', unlocked: state.stats.citadelUnlocked && hasAnimated, launch: switchToCitadel },
   ];
 
   grid.innerHTML = '';

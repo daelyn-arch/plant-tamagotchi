@@ -19,6 +19,7 @@ function defaultState() {
       bugKillsTotal: 0,
       tdUnlocked: false,
       tdHighWave: 0,
+      citadelUnlocked: false,
     },
   };
 }

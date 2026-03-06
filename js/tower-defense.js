@@ -95,6 +95,14 @@ let showingPauseMenu = false;
 let damageFlash = 0;
 let abilityFlash = 0;
 let abilityFlashColor = null;
+let autoAbility = false;
+
+// Citadel event state
+let showingCitadelEvent = false;
+let citadelAnimPhase = 0;   // 0: road rotation, 1: citadel approach, 2: choice shown
+let citadelAnimTimer = 0;
+let citadelApproachX = W + 60; // starts off-screen right
+let roadRotation = 0;       // 0 = vertical, 1 = horizontal
 
 // Background dots (deterministic)
 let bgDots = [];
@@ -140,6 +148,10 @@ const UPGRADE_DEFS = [
     key: 'health', name: 'Max Health', desc: 'More plant HP',
     values: { Common: 10, Uncommon: 20, Rare: 35, Epic: 50, Legendary: 80 },
   },
+  {
+    key: 'projSpeed', name: 'Proj Speed', desc: 'Projectiles fly faster',
+    values: { Common: 1, Uncommon: 2, Rare: 3, Epic: 4, Legendary: 6 },
+  },
 ];
 
 // ── Elemental Upgrade Definitions (4th card) ─────────────────────
@@ -182,7 +194,7 @@ const ELEMENTAL_UPGRADE_DEFS = {
       values: { Common: 5, Uncommon: 8, Rare: 12, Epic: 18, Legendary: 25 },
     },
     {
-      key: 'thorns', name: 'Thorns', desc: 'Enemies take damage when they hit you',
+      key: 'thorns', name: 'Thorns', desc: 'When hit, damages all enemies + gains shield',
       values: { Common: 5, Uncommon: 10, Rare: 18, Epic: 30, Legendary: 50 },
     },
   ],
@@ -382,6 +394,7 @@ function resetGame() {
   player = {
     x: CX, y: CY,
     hp: 100, maxHp: 100,
+    shield: 0,
     element: potElement || null,
     potLevel: potLevel,
   };
@@ -439,10 +452,17 @@ function resetGame() {
 
   damageFlash = 0;
   abilityFlash = 0;
+  autoAbility = false;
 
   roadOffset = 0;
   travelAnim = 0;
   plantHopFrame = 0;
+
+  showingCitadelEvent = false;
+  citadelAnimPhase = 0;
+  citadelAnimTimer = 0;
+  citadelApproachX = W + 60;
+  roadRotation = 0;
 
   // Generate background dots & grass tufts
   bgDots = [];
@@ -494,13 +514,42 @@ function update() {
   if (damageFlash > 0) damageFlash--;
   if (abilityFlash > 0) abilityFlash--;
   if (waveAnnounceTimer > 0) waveAnnounceTimer--;
-
-  // If showing upgrade picker or pause menu, pause game
+  // If showing upgrade picker, pause menu, or stats, pause game
   if (showingUpgradePicker) return;
   if (showingPauseMenu) return;
+  if (showingStats) return;
 
   // Between-wave pause
   if (wavePause) {
+    // Citadel event animation
+    if (showingCitadelEvent) {
+      citadelAnimTimer++;
+      if (citadelAnimPhase === 0) {
+        // Phase 0: rotate road from vertical to horizontal (90 frames)
+        roadRotation = Math.min(1, citadelAnimTimer / 90);
+        roadOffset = (roadOffset + 2) % 16;
+        plantHopFrame++;
+        if (citadelAnimTimer >= 90) {
+          citadelAnimPhase = 1;
+          citadelAnimTimer = 0;
+        }
+      } else if (citadelAnimPhase === 1) {
+        // Phase 1: citadel approaches from right (120 frames)
+        roadOffset = (roadOffset + 2) % 16;
+        plantHopFrame++;
+        const t = Math.min(1, citadelAnimTimer / 120);
+        // Ease-out approach
+        const ease = 1 - (1 - t) * (1 - t);
+        citadelApproachX = W + 60 - ease * (W + 60 - 230);
+        if (citadelAnimTimer >= 120) {
+          citadelAnimPhase = 2;
+          citadelAnimTimer = 0;
+        }
+      }
+      // Phase 2: waiting for click, no updates needed
+      return;
+    }
+
     wavePauseTimer--;
 
     // Travel animation: scroll road + bounce plant
@@ -548,6 +597,9 @@ function update() {
   const rechargeRate = 0.15 + upgrades.powerRecharge;
   if (!abilityActive && player.element) {
     abilityCharge = Math.min(abilityMaxCharge, abilityCharge + rechargeRate);
+    if (autoAbility && abilityCharge >= abilityMaxCharge) {
+      activateAbility();
+    }
   }
 
   // Ability active timer
@@ -578,6 +630,16 @@ function update() {
     plantHopFrame = 0;
     // Bonus upgrade after every completed wave
     generateUpgradeOptions();
+
+    // Citadel event: triggers after wave 14 if not yet unlocked
+    if (wave === 14 && !loadState().stats.citadelUnlocked) {
+      showingCitadelEvent = true;
+      citadelAnimPhase = 0;
+      citadelAnimTimer = 0;
+      citadelApproachX = W + 60;
+      roadRotation = 0;
+      wavePauseTimer = 99999; // freeze normal flow
+    }
   }
 
   // Update enemies
@@ -626,20 +688,28 @@ function update() {
         enemies.splice(i, 1);
         continue;
       }
-      // Thorns (earth upgrade) — damage enemy on contact
-      if (upgrades.thorns > 0) {
-        e.hp -= upgrades.thorns;
-        spawnParticles(e.x, e.y, '#c0a060', 3);
-        if (e.hp <= 0) {
-          killEnemy(i);
-          continue;
-        }
+      // Reached plant — deal damage (shield absorbs first)
+      let dmg = e.damage;
+      if (player.shield > 0) {
+        const absorbed = Math.min(player.shield, dmg);
+        player.shield -= absorbed;
+        dmg -= absorbed;
+        spawnParticles(CX, CY, '#44ccff', 3);
       }
-      // Reached plant — deal damage
-      player.hp -= e.damage;
+      player.hp -= dmg;
       damageFlash = 15;
       spawnParticles(CX, CY, '#ff0000', 4);
       enemies.splice(i, 1);
+      // Thorns (earth upgrade) — retaliation burst: damage all enemies + gain shield
+      if (upgrades.thorns > 0) {
+        spawnAoeRing(CX, CY, 150, '#c0a060', 25);
+        for (let j = enemies.length - 1; j >= 0; j--) {
+          enemies[j].hp -= upgrades.thorns;
+          spawnParticles(enemies[j].x, enemies[j].y, '#c0a060', 2);
+          if (enemies[j].hp <= 0) killEnemy(j);
+        }
+        player.shield += Math.round(e.damage * 0.25);
+      }
       if (player.hp <= 0) {
         player.hp = 0;
         tdGameOver();
@@ -756,7 +826,7 @@ function update() {
 
   // Ice: Chill Aura — passively slow nearby enemies
   if (upgrades.chillAura > 0 && frameCount % 30 === 0) {
-    const chillRange = 50;
+    const chillRange = 120;
     spawnAoeRing(CX, CY, chillRange, '#80d0ff', 20);
     for (const e of enemies) {
       const d = Math.sqrt((e.x - CX) ** 2 + (e.y - CY) ** 2);
@@ -1240,8 +1310,10 @@ function rollRarity() {
 function applyUpgrade(option) {
   upgrades[option.key] += option.value;
   if (option.key === 'health') {
-    player.maxHp += option.value;
+    const bonus = Math.round(option.value * 1.25);
+    player.maxHp += bonus;
     player.hp = player.maxHp;
+    player.shield += bonus;
   }
 }
 
@@ -1600,9 +1672,203 @@ function getDeckMaxScroll() {
   return Math.max(0, totalH - maxVisible);
 }
 
+// ── Stats Screen ─────────────────────────────────────────────────
+
+const STATS_BACK_BTN = { x: 4, y: 4, w: 40, h: 14 };
+
+function renderStatsScreen() {
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Back button
+  const bb = STATS_BACK_BTN;
+  ctx.fillStyle = '#222';
+  ctx.fillRect(bb.x, bb.y, bb.w, bb.h);
+  ctx.strokeStyle = '#666';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(bb.x, bb.y, bb.w, bb.h);
+  ctx.fillStyle = '#ccc';
+  ctx.font = '6px monospace';
+  ctx.fillText('← Back', bb.x + 4, bb.y + 10);
+
+  // Title
+  ctx.fillStyle = '#ffdd00';
+  ctx.font = '10px monospace';
+  const title = 'Plant Stats';
+  const tw = ctx.measureText(title).width;
+  ctx.fillText(title, (W - tw) / 2, 30);
+
+  // Scrollable area
+  ctx.save();
+  const areaY = 40;
+  const areaH = H - areaY;
+  ctx.beginPath();
+  ctx.rect(0, areaY, W, areaH);
+  ctx.clip();
+
+  let y = areaY - statsScroll;
+  const lh = 11; // line height
+  const col1 = 12;
+  const col2 = W - 12;
+
+  // ── Core Stats ──
+  y += 4;
+  ctx.fillStyle = '#ff6644';
+  ctx.font = '7px monospace';
+  ctx.fillText('── CORE ──', col1, y);
+  y += lh + 2;
+
+  const fireRate = Math.max(10, 60 - upgrades.attackSpeed * 5);
+  const aps = (60 / fireRate).toFixed(1);
+  const dmg = 10 + upgrades.attackDamage * 5;
+  const projCount = 1 + upgrades.weaponCount;
+  const rechargeRate = (0.15 + upgrades.powerRecharge).toFixed(2);
+  const slowPct = upgrades.bugSlow;
+
+  const coreStats = [
+    ['HP', `${player.hp}/${player.maxHp}`],
+    ['Shield', `${player.shield}`],
+    ['Attack Dmg', `${dmg}`],
+    ['Atk Speed', `${aps}/s (${upgrades.attackSpeed} pts)`],
+    ['Projectiles', `${projCount}`],
+    ['Ability Rchg', `${rechargeRate}/frame`],
+    ['Bug Slow', `${slowPct}%`],
+    ['Wave', `${wave}`],
+    ['Level', `${playerLevel}`],
+    ['Score', `${score}`],
+  ];
+
+  ctx.font = '5px monospace';
+  for (const [label, val] of coreStats) {
+    ctx.fillStyle = '#aaa';
+    ctx.fillText(label, col1, y);
+    ctx.fillStyle = '#fff';
+    const vw = ctx.measureText(val).width;
+    ctx.fillText(val, col2 - vw, y);
+    y += lh;
+  }
+
+  // ── Element ──
+  if (player.element) {
+    y += 6;
+    const elemColors = { fire: '#ff6600', ice: '#80d0ff', earth: '#c0a060', wind: '#88ddaa' };
+    ctx.fillStyle = elemColors[player.element] || '#ffdd00';
+    ctx.font = '7px monospace';
+    ctx.fillText(`── ${player.element.toUpperCase()} ──`, col1, y);
+    y += lh + 2;
+
+    const elemDefs = ELEMENTAL_UPGRADE_DEFS[player.element] || [];
+    const elemStats = [];
+    for (const def of elemDefs) {
+      const val = upgrades[def.key];
+      if (val > 0) {
+        let display = `${val}`;
+        if (def.key === 'freezeChance' || def.key === 'barrierChance' || def.key === 'dodgeChance') {
+          display = `${val}%`;
+        }
+        elemStats.push([def.name, display, def.desc]);
+      }
+    }
+
+    ctx.font = '5px monospace';
+    if (elemStats.length === 0) {
+      ctx.fillStyle = '#666';
+      ctx.fillText('No elemental upgrades yet', col1, y);
+      y += lh;
+    } else {
+      for (const [label, val, desc] of elemStats) {
+        ctx.fillStyle = '#aaa';
+        ctx.fillText(label, col1, y);
+        ctx.fillStyle = '#fff';
+        const vw = ctx.measureText(val).width;
+        ctx.fillText(val, col2 - vw, y);
+        y += lh - 2;
+        ctx.fillStyle = '#666';
+        ctx.font = '4px monospace';
+        ctx.fillText(desc, col1 + 4, y);
+        ctx.font = '5px monospace';
+        y += lh;
+      }
+    }
+  }
+
+  // ── Upgrades Collected ──
+  y += 6;
+  ctx.fillStyle = '#aa88ff';
+  ctx.font = '7px monospace';
+  ctx.fillText('── UPGRADES ──', col1, y);
+  y += lh + 2;
+
+  const allDefs = [...UPGRADE_DEFS];
+  if (player.element && ELEMENTAL_UPGRADE_DEFS[player.element]) {
+    allDefs.push(...ELEMENTAL_UPGRADE_DEFS[player.element]);
+  }
+
+  ctx.font = '5px monospace';
+  let hasAny = false;
+  for (const def of allDefs) {
+    const val = upgrades[def.key];
+    if (val > 0) {
+      hasAny = true;
+      ctx.fillStyle = '#ccc';
+      ctx.fillText(def.name, col1, y);
+      ctx.fillStyle = '#ffdd00';
+      const vStr = `+${val}`;
+      const vw = ctx.measureText(vStr).width;
+      ctx.fillText(vStr, col2 - vw, y);
+      y += lh;
+    }
+  }
+  if (!hasAny) {
+    ctx.fillStyle = '#666';
+    ctx.fillText('No upgrades yet', col1, y);
+    y += lh;
+  }
+
+  // Total content height for scrolling
+  const totalContentH = y + statsScroll - areaY;
+  ctx.restore();
+
+  // Scroll indicator
+  if (totalContentH > areaH) {
+    const scrollBarH = Math.max(20, areaH * (areaH / totalContentH));
+    const maxScroll = totalContentH - areaH;
+    const scrollBarY = areaY + (statsScroll / maxScroll) * (areaH - scrollBarH);
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.fillRect(W - 4, scrollBarY, 3, scrollBarH);
+  }
+}
+
+function handleStatsClick(x, y) {
+  const bb = STATS_BACK_BTN;
+  if (x >= bb.x && x <= bb.x + bb.w && y >= bb.y && y <= bb.y + bb.h) {
+    showingStats = false;
+    statsScroll = 0;
+    return;
+  }
+}
+
+function getStatsMaxScroll() {
+  // Estimate total content height
+  let lines = 12; // core stats
+  if (player.element) {
+    const elemDefs = ELEMENTAL_UPGRADE_DEFS[player.element] || [];
+    lines += 2 + elemDefs.filter(d => upgrades[d.key] > 0).length * 2;
+  }
+  const allDefs = [...UPGRADE_DEFS];
+  if (player.element && ELEMENTAL_UPGRADE_DEFS[player.element]) allDefs.push(...ELEMENTAL_UPGRADE_DEFS[player.element]);
+  lines += 2 + allDefs.filter(d => upgrades[d.key] > 0).length;
+  const totalH = lines * 11 + 40;
+  return Math.max(0, totalH - (H - 40));
+}
+
 // ── Pause Menu ────────────────────────────────────────────────────
 
-const HAMBURGER_BTN = { x: 4, y: 4, w: 18, h: 16 };
+const HAMBURGER_BTN = { x: 4, y: 18, w: 18, h: 16 };
+const AUTO_BTN = { x: 4, y: 38, w: 18, h: 12 };
+const STATS_BTN = { x: 26, y: 18, w: 28, h: 16 };
+let showingStats = false;
+let statsScroll = 0;
 
 function renderHamburgerButton() {
   if (showingUpgradePicker || showingPauseMenu) return;
@@ -1613,6 +1879,34 @@ function renderHamburgerButton() {
   for (let i = 0; i < 3; i++) {
     ctx.fillRect(b.x + 4, b.y + 4 + i * 4, 10, 2);
   }
+}
+
+function renderStatsButton() {
+  if (showingUpgradePicker || showingPauseMenu || showingStats) return;
+  const b = STATS_BTN;
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(b.x, b.y, b.w, b.h);
+  ctx.fillStyle = '#ccc';
+  ctx.font = '6px monospace';
+  const label = 'STATS';
+  const lw = ctx.measureText(label).width;
+  ctx.fillText(label, b.x + (b.w - lw) / 2, b.y + 11);
+}
+
+function renderAutoButton() {
+  if (showingUpgradePicker || showingPauseMenu || showingStats) return;
+  if (!player.element) return;
+  const b = AUTO_BTN;
+  ctx.fillStyle = autoAbility ? 'rgba(0,180,80,0.6)' : 'rgba(0,0,0,0.5)';
+  ctx.fillRect(b.x, b.y, b.w, b.h);
+  ctx.strokeStyle = autoAbility ? '#44ff88' : '#666';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(b.x, b.y, b.w, b.h);
+  ctx.fillStyle = autoAbility ? '#fff' : '#999';
+  ctx.font = '5px monospace';
+  const label = 'AUTO';
+  const lw = ctx.measureText(label).width;
+  ctx.fillText(label, b.x + (b.w - lw) / 2, b.y + 9);
 }
 
 const PAUSE_BTNS = {
@@ -1766,6 +2060,13 @@ function render() {
     }
   }
 
+  // Citadel event overrides normal gameplay rendering
+  if (showingCitadelEvent) {
+    renderCitadelEvent();
+    ctx.restore();
+    return;
+  }
+
   // Range circle (subtle, over grass)
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
   ctx.lineWidth = 1;
@@ -1865,6 +2166,12 @@ function render() {
   // HP bar above plant
   const barOffsetY = plantSprite ? plantSprite.height / 2 : 20;
   renderHpBar(CX - 25, CY - barOffsetY - 12, 50, 4, player.hp, player.maxHp, '#44aa44');
+  // Shield bar overlay (cyan, on top of HP bar)
+  if (player.shield > 0) {
+    const shieldPct = Math.min(1, player.shield / player.maxHp);
+    ctx.fillStyle = 'rgba(68, 204, 255, 0.6)';
+    ctx.fillRect(CX - 25, CY - barOffsetY - 12, Math.round(50 * shieldPct), 4);
+  }
 
   // Ability charge bar below HP bar
   if (player.element) {
@@ -1954,6 +2261,13 @@ function render() {
   // Hamburger button (during gameplay, not during overlays)
   if (gameStarted && running && !showingUpgradePicker && !showingPauseMenu) {
     renderHamburgerButton();
+    renderStatsButton();
+    renderAutoButton();
+  }
+
+  // Stats overlay (renders on top of everything)
+  if (showingStats) {
+    renderStatsScreen();
   }
 
   ctx.restore();
@@ -2133,7 +2447,7 @@ function updateHud() {
   const expPct = Math.round((fertilizerExp / expToNextLevel) * 100);
   hud.innerHTML = `
     <span class="td-hud-wave">Wave ${wave}</span>
-    <span class="td-hud-hp">HP ${player.hp}/${player.maxHp}</span>
+    <span class="td-hud-hp">HP ${player.hp}/${player.maxHp}${player.shield > 0 ? ` +${player.shield}🛡` : ''}</span>
     <span class="td-hud-score">Score ${score}</span>
     <span class="td-hud-level">Lv.${playerLevel} (${expPct}%)</span>
   `;
@@ -2229,6 +2543,238 @@ function showGameOverScreen(isNewHigh, highWave) {
   document.getElementById('tdBackBtn2').addEventListener('click', handleBack);
 }
 
+// ── Citadel Event ─────────────────────────────────────────────────
+
+function renderCitadel(x) {
+  const baseW = 50, baseH = 80;
+  const bx = Math.round(x - baseW / 2);
+  const by = Math.round(CY - baseH / 2 - 10);
+
+  // Purple aura glow
+  const pulse = 0.3 + 0.2 * Math.sin(frameCount * 0.05);
+  ctx.globalAlpha = pulse;
+  ctx.fillStyle = '#6a1a8a';
+  ctx.fillRect(bx - 6, by - 6, baseW + 12, baseH + 12);
+  ctx.globalAlpha = pulse * 0.5;
+  ctx.fillRect(bx - 10, by - 10, baseW + 20, baseH + 20);
+  ctx.globalAlpha = 1;
+
+  // Main stone body
+  ctx.fillStyle = '#1a1a2a';
+  ctx.fillRect(bx + 8, by + 10, baseW - 16, baseH - 10);
+
+  // Left tower
+  ctx.fillStyle = '#1a1a2a';
+  ctx.fillRect(bx, by + 20, 12, baseH - 20);
+  // Left tower top (pointed)
+  ctx.fillRect(bx + 1, by + 14, 10, 6);
+  ctx.fillRect(bx + 2, by + 10, 8, 4);
+  ctx.fillRect(bx + 3, by + 6, 6, 4);
+  ctx.fillRect(bx + 4, by + 3, 4, 3);
+  ctx.fillRect(bx + 5, by + 1, 2, 2);
+
+  // Right tower
+  ctx.fillRect(bx + baseW - 12, by + 20, 12, baseH - 20);
+  // Right tower top
+  ctx.fillRect(bx + baseW - 11, by + 14, 10, 6);
+  ctx.fillRect(bx + baseW - 10, by + 10, 8, 4);
+  ctx.fillRect(bx + baseW - 9, by + 6, 6, 4);
+  ctx.fillRect(bx + baseW - 8, by + 3, 4, 3);
+  ctx.fillRect(bx + baseW - 7, by + 1, 2, 2);
+
+  // Center spire
+  ctx.fillRect(bx + 20, by + 5, 10, 10);
+  ctx.fillRect(bx + 21, by + 1, 8, 4);
+  ctx.fillRect(bx + 22, by - 2, 6, 3);
+  ctx.fillRect(bx + 23, by - 5, 4, 3);
+  ctx.fillRect(bx + 24, by - 7, 2, 2);
+
+  // Stone highlights
+  ctx.fillStyle = '#2a2a3a';
+  ctx.fillRect(bx + 10, by + 12, baseW - 20, 2);
+  ctx.fillRect(bx + 10, by + 30, baseW - 20, 1);
+  ctx.fillRect(bx + 10, by + 45, baseW - 20, 1);
+
+  // Dark archway entrance
+  ctx.fillStyle = '#0a0a12';
+  ctx.fillRect(bx + 17, by + baseH - 28, 16, 28);
+  ctx.fillRect(bx + 18, by + baseH - 32, 14, 4);
+  ctx.fillRect(bx + 19, by + baseH - 34, 12, 2);
+
+  // Glowing windows - red/purple
+  const glow = 0.6 + 0.4 * Math.sin(frameCount * 0.08);
+  ctx.globalAlpha = glow;
+  // Left tower windows
+  ctx.fillStyle = '#cc2244';
+  ctx.fillRect(bx + 3, by + 24, 4, 3);
+  ctx.fillStyle = '#8822aa';
+  ctx.fillRect(bx + 3, by + 34, 4, 3);
+  // Right tower windows
+  ctx.fillStyle = '#cc2244';
+  ctx.fillRect(bx + baseW - 8, by + 24, 4, 3);
+  ctx.fillStyle = '#8822aa';
+  ctx.fillRect(bx + baseW - 8, by + 34, 4, 3);
+  // Center windows
+  ctx.fillStyle = '#aa1144';
+  ctx.fillRect(bx + 14, by + 20, 3, 4);
+  ctx.fillRect(bx + baseW - 17, by + 20, 3, 4);
+  // Archway glow
+  ctx.fillStyle = '#6a1a3a';
+  ctx.fillRect(bx + 19, by + baseH - 26, 12, 20);
+  ctx.globalAlpha = 1;
+}
+
+function renderCitadelEvent() {
+  const roadW = 48;
+
+  if (citadelAnimPhase === 0) {
+    // Phase 0: crossfade vertical road to horizontal
+    const t = roadRotation; // 0 to 1
+
+    // Vertical road fading out
+    if (t < 1) {
+      ctx.globalAlpha = 1 - t;
+      const roadX = CX - roadW / 2;
+      ctx.fillStyle = '#8a7a5a';
+      ctx.fillRect(roadX, 0, roadW, H);
+      ctx.fillStyle = '#6a6040';
+      ctx.fillRect(roadX, 0, 2, H);
+      ctx.fillRect(roadX + roadW - 2, 0, 2, H);
+      ctx.fillStyle = '#9a8a68';
+      ctx.fillRect(roadX + 4, 0, roadW - 8, H);
+      ctx.fillStyle = '#b0a078';
+      for (let y = -16 + (roadOffset % 16); y < H; y += 16) {
+        ctx.fillRect(CX - 1, y, 2, 8);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // Horizontal road fading in
+    if (t > 0) {
+      ctx.globalAlpha = t;
+      const roadY = CY - roadW / 2;
+      ctx.fillStyle = '#8a7a5a';
+      ctx.fillRect(0, roadY, W, roadW);
+      ctx.fillStyle = '#6a6040';
+      ctx.fillRect(0, roadY, W, 2);
+      ctx.fillRect(0, roadY + roadW - 2, W, 2);
+      ctx.fillStyle = '#9a8a68';
+      ctx.fillRect(0, roadY + 4, W, roadW - 8);
+      ctx.fillStyle = '#b0a078';
+      for (let x = -16 + (roadOffset % 16); x < W; x += 16) {
+        ctx.fillRect(x, CY - 1, 8, 2);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // Plant hopping at center
+    if (plantSprite) {
+      const px = CX - plantSprite.width / 2;
+      let py = CY - plantSprite.height / 2;
+      const hopHeight = Math.abs(Math.sin(plantHopFrame * 0.2)) * 6;
+      py -= hopHeight;
+      ctx.drawImage(plantSprite, Math.round(px), Math.round(py));
+    }
+  } else {
+    // Phase 1 & 2: horizontal road + plant on left + citadel sliding in
+    const roadY = CY - roadW / 2;
+    ctx.fillStyle = '#8a7a5a';
+    ctx.fillRect(0, roadY, W, roadW);
+    ctx.fillStyle = '#6a6040';
+    ctx.fillRect(0, roadY, W, 2);
+    ctx.fillRect(0, roadY + roadW - 2, W, 2);
+    ctx.fillStyle = '#9a8a68';
+    ctx.fillRect(0, roadY + 4, W, roadW - 8);
+    ctx.fillStyle = '#b0a078';
+    for (let x = -16 + (roadOffset % 16); x < W; x += 16) {
+      ctx.fillRect(x, CY - 1, 8, 2);
+    }
+
+    // Dirt speckle on horizontal road
+    ctx.fillStyle = '#7a6a4a';
+    for (const dot of bgDots) {
+      if (dot.y > roadY + 4 && dot.y < roadY + roadW - 4) {
+        ctx.fillRect(dot.x, dot.y, dot.size, dot.size);
+      }
+    }
+
+    // Plant on left side
+    if (plantSprite) {
+      const px = 50 - plantSprite.width / 2;
+      let py = CY - plantSprite.height / 2;
+      if (citadelAnimPhase === 1) {
+        const hopHeight = Math.abs(Math.sin(plantHopFrame * 0.2)) * 6;
+        py -= hopHeight;
+      }
+      ctx.drawImage(plantSprite, Math.round(px), Math.round(py));
+    }
+
+    // Citadel
+    renderCitadel(citadelApproachX);
+
+    // Phase 2: show choice buttons
+    if (citadelAnimPhase === 2) {
+      // Dramatic text
+      ctx.fillStyle = '#e0d0ff';
+      ctx.font = '9px monospace';
+      const title = 'A dark citadel looms ahead...';
+      const tw = ctx.measureText(title).width;
+      ctx.fillText(title, (W - tw) / 2, CY - 56);
+
+      // "Enter the Citadel" button
+      const btn1 = { x: CX - 65, y: CY + 28, w: 130, h: 22 };
+      ctx.fillStyle = '#2a1040';
+      ctx.fillRect(btn1.x, btn1.y, btn1.w, btn1.h);
+      ctx.strokeStyle = '#8844cc';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(btn1.x, btn1.y, btn1.w, btn1.h);
+      ctx.fillStyle = '#cc88ff';
+      ctx.font = '8px monospace';
+      const t1 = 'Enter the Citadel';
+      const tw1 = ctx.measureText(t1).width;
+      ctx.fillText(t1, btn1.x + (btn1.w - tw1) / 2, btn1.y + 14);
+
+      // "Continue Down the Road" button
+      const btn2 = { x: CX - 65, y: CY + 56, w: 130, h: 22 };
+      ctx.fillStyle = '#2a2a18';
+      ctx.fillRect(btn2.x, btn2.y, btn2.w, btn2.h);
+      ctx.strokeStyle = '#8a8a5a';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(btn2.x, btn2.y, btn2.w, btn2.h);
+      ctx.fillStyle = '#cccc88';
+      ctx.font = '8px monospace';
+      const t2 = 'Continue Down the Road';
+      const tw2 = ctx.measureText(t2).width;
+      ctx.fillText(t2, btn2.x + (btn2.w - tw2) / 2, btn2.y + 14);
+    }
+  }
+}
+
+function handleCitadelClick(x, y) {
+  if (citadelAnimPhase !== 2) return;
+
+  // "Enter the Citadel" button
+  const btn1 = { x: CX - 65, y: CY + 28, w: 130, h: 22 };
+  if (x >= btn1.x && x <= btn1.x + btn1.w && y >= btn1.y && y <= btn1.y + btn1.h) {
+    const state = loadState();
+    state.stats.citadelUnlocked = true;
+    saveState(state);
+    showingCitadelEvent = false;
+    handleBack();
+    return;
+  }
+
+  // "Continue Down the Road" button
+  const btn2 = { x: CX - 65, y: CY + 56, w: 130, h: 22 };
+  if (x >= btn2.x && x <= btn2.x + btn2.w && y >= btn2.y && y <= btn2.y + btn2.h) {
+    showingCitadelEvent = false;
+    roadRotation = 0;
+    wavePauseTimer = 60;
+    travelAnim = 0;
+    return;
+  }
+}
+
 function handleBack() {
   stopTowerDefense();
   if (onBackCallback) onBackCallback();
@@ -2243,9 +2789,20 @@ function onClick(e) {
   const x = (e.clientX - rect.left) * scaleX;
   const y = (e.clientY - rect.top) * scaleY;
 
+  // Stats screen
+  if (showingStats) {
+    handleStatsClick(x, y);
+    return;
+  }
+
   // Deck view (shared between upgrade picker and pause menu)
   if (showingDeck) {
     handleDeckClick(x, y);
+    return;
+  }
+
+  if (showingCitadelEvent) {
+    handleCitadelClick(x, y);
     return;
   }
 
@@ -2264,6 +2821,17 @@ function onClick(e) {
     const hb = HAMBURGER_BTN;
     if (x >= hb.x && x <= hb.x + hb.w && y >= hb.y && y <= hb.y + hb.h) {
       showingPauseMenu = true;
+      return;
+    }
+    const sb = STATS_BTN;
+    if (x >= sb.x && x <= sb.x + sb.w && y >= sb.y && y <= sb.y + sb.h) {
+      showingStats = true;
+      statsScroll = 0;
+      return;
+    }
+    const ab = AUTO_BTN;
+    if (player.element && x >= ab.x && x <= ab.x + ab.w && y >= ab.y && y <= ab.y + ab.h) {
+      autoAbility = !autoAbility;
       return;
     }
     activateAbility();
@@ -2287,6 +2855,11 @@ function onTouchStart(e) {
 }
 
 function onWheel(e) {
+  if (showingStats) {
+    e.preventDefault();
+    statsScroll = Math.max(0, Math.min(getStatsMaxScroll(), statsScroll + e.deltaY * 0.5));
+    return;
+  }
   if (!showingDeck) return;
   e.preventDefault();
   deckScroll = Math.max(0, Math.min(getDeckMaxScroll(), deckScroll + e.deltaY * 0.5));
