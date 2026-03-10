@@ -20,6 +20,9 @@ function defaultState() {
       tdUnlocked: false,
       tdHighWave: 0,
       citadelUnlocked: false,
+      citadelClears: 0,
+      citadelBestFloor: 0,
+      citadelTotalRuns: 0,
     },
   };
 }

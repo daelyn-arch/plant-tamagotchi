@@ -24,6 +24,7 @@ import { renderInfoPanel, setOnInfoBack } from './info-panel.js';
 import { SPECIES, RARITY } from './plant-data.js';
 import { startMinigame, stopMinigame } from './minigame.js';
 import { startTowerDefense, stopTowerDefense } from './tower-defense.js';
+import { startCitadel, stopCitadel } from './citadel.js';
 import { potLevelFromExp } from './canvas-utils.js';
 
 let currentScreen = 'plant';
@@ -367,7 +368,25 @@ function switchToTowerDefense() {
 }
 
 function switchToCitadel() {
-  showToast('The Dark Citadel awaits... Coming soon!');
+  const state = loadState();
+  if (!state.stats.citadelUnlocked) return;
+
+  const eligiblePlants = state.garden.filter(p => p.animated);
+  if (eligiblePlants.length === 0) return;
+
+  stopAllAnimators();
+  currentScreen = 'citadel';
+  showScreen('citadelScreen');
+  startCitadel(eligiblePlants, () => {
+    stopCitadel();
+    currentScreen = 'plant';
+    showScreen('plantScreen');
+    requestAnimationFrame(() => {
+      const s = loadState();
+      updatePlantView(s);
+      updateTdButton(s);
+    });
+  });
 }
 
 function updateTdButton(state) {
@@ -387,13 +406,24 @@ function showGamesMenu() {
   const hasAnimated = state.garden && state.garden.some(p => p.animated);
   const tdUnlocked = state.stats.tdUnlocked && hasAnimated;
 
+  const runnerUnlocked = hasAnimated;
   const games = [
-    { id: 'runner', name: 'Plant Runner', unlocked: true, launch: switchToMinigame },
+    { id: 'runner', name: 'Plant Runner', unlocked: runnerUnlocked, launch: switchToMinigame },
     { id: 'td', name: 'Stop the Bugs', unlocked: tdUnlocked, launch: switchToTowerDefense },
     { id: 'citadel', name: 'Dark Citadel', unlocked: state.stats.citadelUnlocked && hasAnimated, launch: switchToCitadel },
   ];
 
+  const anyUnlocked = games.some(g => g.unlocked);
+
   grid.innerHTML = '';
+
+  if (!anyUnlocked) {
+    const msg = document.createElement('div');
+    msg.className = 'games-menu-locked-msg';
+    msg.textContent = 'Seek the Life Spark...';
+    grid.appendChild(msg);
+  }
+
   for (const game of games) {
     const card = document.createElement('div');
     card.className = 'game-card' + (game.unlocked ? '' : ' game-card-locked');
@@ -728,6 +758,48 @@ function setupDevControls() {
     saveState(state);
     updateTdButton(state);
     showToast('DEV: Tower Defense unlocked (animated plant added)', 'info');
+  });
+
+  document.getElementById('devUnlockCitadel')?.addEventListener('click', () => {
+    const state = loadState();
+    state.stats.citadelUnlocked = true;
+    state.stats.tdUnlocked = true;
+    if (!state.garden) state.garden = [];
+    const today = todayStr();
+    const elements = [
+      { elem: 'fire',  species: 'Snapdragon', seed: 101 },
+      { elem: 'ice',   species: 'Violet',     seed: 202 },
+      { elem: 'earth', species: 'Fern',       seed: 303 },
+      { elem: 'wind',  species: 'Lavender',   seed: 404 },
+    ];
+    for (const { elem, species, seed } of elements) {
+      state.garden.push({
+        id: Date.now().toString(36) + elem,
+        seed,
+        species,
+        rarity: RARITY.UNCOMMON,
+        complexity: 3,
+        hasFlowers: true,
+        leafType: 'spatula',
+        flowerTemplate: 'daisy',
+        name: species,
+        totalDaysRequired: 5,
+        daysGrown: 5,
+        growthStage: 1.0,
+        daysVisited: [],
+        dateReceived: today,
+        dateCompleted: today,
+        autoWater: false,
+        animated: true,
+        potElement: elem,
+        potLevel: 3,
+        potExp: 300,
+      });
+    }
+    state.stats.totalPlantsGrown = (state.stats.totalPlantsGrown || 0) + 4;
+    saveState(state);
+    updateTdButton(state);
+    showToast('DEV: Citadel unlocked + 4 elemental plants added', 'info');
   });
 
   document.getElementById('devPotExp')?.addEventListener('click', () => {

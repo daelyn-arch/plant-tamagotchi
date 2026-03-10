@@ -65,7 +65,7 @@
         <div class="secondary-actions">
           <button class="btn" id="gardenBtn">View Garden</button>
           <button class="btn" id="inventoryBtn">Inventory</button>
-          <button class="btn" id="gamesBtn" style="display:none">Games</button>
+          <button class="btn" id="gamesBtn">Games</button>
           <button class="btn" id="infoBtn">Info</button>
         </div>
       </div>
@@ -116,6 +116,17 @@
       </div>
       <div class="minigame-start-overlay" id="tdOverlay">
         <div id="tdOverlayContent"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Citadel Screen -->
+  <div id="citadelScreen" class="screen citadel-screen">
+    <div id="citadelContainer" class="td-container">
+      <canvas id="citadelCanvas" width="640" height="640"></canvas>
+      <div class="citadel-hud" id="citadelHud"></div>
+      <div class="minigame-start-overlay" id="citadelOverlay">
+        <div id="citadelOverlayContent"></div>
       </div>
     </div>
   </div>
@@ -173,6 +184,7 @@
       <button class="dev-btn" id="devPotExp">+100 Pot EXP</button>
       <button class="dev-btn" id="devUnlockPR">Unlock PR</button>
       <button class="dev-btn" id="devUnlockTD">Unlock TD</button>
+      <button class="dev-btn" id="devUnlockCitadel">Unlock Citadel</button>
     </div>
     <button class="dev-toggle" id="devToggle">DEV</button>
   </div>

@@ -95,12 +95,10 @@ export function updatePlantView(state) {
     }
   }
 
-  // Games button visibility — show when any animated plant exists
+  // Games button always visible now (locked games show as locked chests)
   const gamesBtn = document.getElementById('gamesBtn');
   if (gamesBtn) {
-    const anyAnimated = (state.currentPlant && state.currentPlant.animated)
-      || state.garden.some(p => p.animated);
-    gamesBtn.style.display = anyAnimated ? '' : 'none';
+    gamesBtn.style.display = '';
   }
 
   // Water button state
