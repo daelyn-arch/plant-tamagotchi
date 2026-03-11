@@ -106,7 +106,7 @@ let plantSprite = null;
 
 // Run state
 let floor = 0;
-let phase = 'plantPicker'; // plantPicker | pathSelect | combat | levelUp | reward | gameOver | victory
+let phase = 'plantPicker'; // plantPicker | pathSelect | combat | levelUp | reward | gameOver | victory | floorTransition | bossCinematic
 let combatLog = [];
 let combatLogScroll = 0;
 
@@ -167,6 +167,19 @@ let turnQueue = []; // array of { type: 'player'|'enemy', name: string }
 // Floating damage numbers
 let dmgPopups = []; // { x, y, text, color, size, timer, maxTimer }
 
+// VFX particles
+let vfxParticles = []; // { x, y, vx, vy, color, size, timer, maxTimer, type }
+let slashEffect = null; // { x, y, timer, maxTimer, color, isCrit, angle }
+let screenFlash = null; // { color, timer, maxTimer, alpha }
+let shieldEffect = null; // { x, y, timer, maxTimer }
+
+// Floor transition
+let floorTransition = null; // { timer, maxTimer: 90, fromFloor, toFloor }
+
+// Boss cinematic
+let bossCinematic = null; // { timer, maxTimer: 270, phase }
+let bossCinematicScale = 0;
+
 function spawnDmgPopup(x, y, text, color, size) {
   const maxTimer = 50; // ~0.8s at 60fps
   dmgPopups.push({ x, y, text, color, size, timer: maxTimer, maxTimer });
@@ -176,6 +189,312 @@ function getEnemyScreenPos(index) {
   const enemyGap = Math.min(60, (W - 20) / Math.max(1, enemies.length));
   const startX = CX - (enemies.length - 1) * enemyGap / 2;
   return { x: startX + index * enemyGap, y: 55 };
+}
+
+// ── VFX System ────────────────────────────────────────────────────
+
+function spawnVfx(x, y, vx, vy, color, size, duration, type) {
+  vfxParticles.push({ x, y, vx, vy, color, size, timer: duration, maxTimer: duration, type: type || 'spark' });
+}
+
+function updateVfxParticles() {
+  for (let i = vfxParticles.length - 1; i >= 0; i--) {
+    const p = vfxParticles[i];
+    p.timer--;
+    p.x += p.vx;
+    p.y += p.vy;
+    if (p.type === 'spark') {
+      p.vy += 0.06; // gravity
+      p.vx *= 0.97;
+    } else if (p.type === 'rise') {
+      p.vx += (Math.random() - 0.5) * 0.1; // drift
+    } else if (p.type === 'ember') {
+      p.vx += (Math.random() - 0.5) * 0.08;
+      p.vy -= 0.01;
+    } else if (p.type === 'orbit') {
+      // orbit handled in render
+    }
+    if (p.timer <= 0) vfxParticles.splice(i, 1);
+  }
+
+  if (slashEffect) {
+    slashEffect.timer--;
+    if (slashEffect.timer <= 0) slashEffect = null;
+  }
+  if (screenFlash) {
+    screenFlash.timer--;
+    if (screenFlash.timer <= 0) screenFlash = null;
+  }
+  if (shieldEffect) {
+    shieldEffect.timer--;
+    if (shieldEffect.timer <= 0) shieldEffect = null;
+  }
+}
+
+function renderVfxParticles() {
+  for (const p of vfxParticles) {
+    if (p.type === 'orbit') continue; // drawn by shield renderer
+    const life = p.timer / p.maxTimer;
+    ctx.globalAlpha = Math.min(1, life * 1.5);
+    ctx.fillStyle = p.color;
+    const s = p.size * (0.5 + life * 0.5);
+    ctx.fillRect(Math.round(p.x - s / 2), Math.round(p.y - s / 2), Math.ceil(s), Math.ceil(s));
+  }
+  ctx.globalAlpha = 1;
+}
+
+function renderScreenFlash() {
+  if (!screenFlash) return;
+  const life = screenFlash.timer / screenFlash.maxTimer;
+  ctx.globalAlpha = screenFlash.alpha * life;
+  ctx.fillStyle = screenFlash.color;
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = 1;
+}
+
+function spawnSlashEffect(x, y, color, isCrit) {
+  const maxTimer = isCrit ? 30 : 20;
+  slashEffect = { x, y, timer: maxTimer, maxTimer, color: color || '#ffffaa', isCrit, angle: -0.5 };
+  const sparkCount = isCrit ? 20 : 10;
+  for (let i = 0; i < sparkCount; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 0.5 + Math.random() * (isCrit ? 2.5 : 1.5);
+    spawnVfx(x, y, Math.cos(angle) * speed, Math.sin(angle) * speed,
+      isCrit ? '#ffff88' : color || '#ffffaa', isCrit ? 2 : 1.5, 20 + Math.random() * 15, 'spark');
+  }
+  if (isCrit) {
+    screenFlash = { color: '#ffffff', timer: 6, maxTimer: 6, alpha: 0.3 };
+  }
+}
+
+function renderSlashEffect() {
+  if (!slashEffect) return;
+  const s = slashEffect;
+  const life = s.timer / s.maxTimer;
+  const progress = 1 - life;
+  ctx.save();
+  ctx.translate(s.x, s.y);
+
+  const radius = s.isCrit ? 20 : 14;
+  const lw = s.isCrit ? 3 : 2;
+  const sweep = Math.PI * 1.2;
+
+  ctx.globalAlpha = life;
+  ctx.strokeStyle = s.color;
+  ctx.lineWidth = lw;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius, s.angle + progress * sweep * 0.3, s.angle + progress * sweep);
+  ctx.stroke();
+
+  if (s.isCrit) {
+    ctx.strokeStyle = '#ff8844';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius * 0.7, s.angle + Math.PI + progress * sweep * 0.3, s.angle + Math.PI + progress * sweep);
+    ctx.stroke();
+
+    // CRIT text
+    if (progress < 0.7) {
+      const scale = progress < 0.2 ? progress / 0.2 : 1;
+      ctx.globalAlpha = Math.min(1, life * 2);
+      ctx.fillStyle = '#ffdd00';
+      ctx.font = `bold ${Math.round(8 * scale)}px "Press Start 2P"`;
+      ctx.textAlign = 'center';
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 2;
+      ctx.strokeText('CRIT!', 0, -radius - 4);
+      ctx.fillText('CRIT!', 0, -radius - 4);
+    }
+  }
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
+function spawnImpactEffect(x, y) {
+  for (let i = 0; i < 12; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 0.5 + Math.random() * 2;
+    const color = Math.random() > 0.5 ? '#ff4444' : '#ff8833';
+    spawnVfx(x, y, Math.cos(angle) * speed, Math.sin(angle) * speed, color, 2, 15 + Math.random() * 10, 'spark');
+  }
+  screenFlash = { color: '#ff0000', timer: 4, maxTimer: 4, alpha: 0.15 };
+}
+
+function spawnShieldEffect(x, y) {
+  shieldEffect = { x, y, timer: 25, maxTimer: 25 };
+  for (let i = 0; i < 6; i++) {
+    spawnVfx(x, y, 0, 0, '#66aaff', 2, 25, 'orbit');
+  }
+}
+
+function renderShieldEffect() {
+  if (!shieldEffect) return;
+  const s = shieldEffect;
+  const life = s.timer / s.maxTimer;
+  const fadeAlpha = life < 0.3 ? life / 0.3 : (life > 0.7 ? (1 - life) / 0.3 : 1);
+
+  ctx.save();
+  ctx.globalAlpha = fadeAlpha * 0.35;
+  ctx.fillStyle = '#4488cc';
+  ctx.beginPath();
+  ctx.ellipse(s.x, s.y, 22, 28, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = fadeAlpha * 0.6;
+  ctx.strokeStyle = '#66aaff';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Orbiting particles
+  const orbitParticles = vfxParticles.filter(p => p.type === 'orbit');
+  for (let i = 0; i < orbitParticles.length; i++) {
+    const p = orbitParticles[i];
+    const angle = (i / orbitParticles.length) * Math.PI * 2 + frameCount * 0.12;
+    const ox = s.x + Math.cos(angle) * 20;
+    const oy = s.y + Math.sin(angle) * 26;
+    ctx.globalAlpha = fadeAlpha * 0.8;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(Math.round(ox - 1), Math.round(oy - 1), 2, 2);
+  }
+
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
+// ── Dungeon Background System ─────────────────────────────────────
+
+function getFloorTheme(f) {
+  if (f >= 10) return { bg: '#100818', grid: '#18101a', wall: '#201822', accent: '#3a1a30', type: 'boss' };
+  if (f >= 7) return { bg: '#120808', grid: '#1a0f0f', wall: '#221a18', accent: '#3a2220', type: 'volcanic' };
+  if (f >= 4) return { bg: '#0a100a', grid: '#0f160f', wall: '#1a2218', accent: '#2a3a2a', type: 'moss' };
+  return { bg: '#0a0a12', grid: '#0f0f1a', wall: '#1a1a22', accent: '#333344', type: 'stone' };
+}
+
+function renderDungeonBackground(theme) {
+  // Base fill
+  ctx.fillStyle = theme.bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Checkerboard grid
+  ctx.fillStyle = theme.grid;
+  for (let x = 0; x < W; x += 16) {
+    for (let y = 0; y < H; y += 16) {
+      if ((x + y) % 32 === 0) ctx.fillRect(x, y, 16, 16);
+    }
+  }
+
+  // Wall strips with brick mortar
+  ctx.fillStyle = theme.wall;
+  ctx.fillRect(0, 0, 4, H);
+  ctx.fillRect(W - 4, 0, 4, H);
+  ctx.fillStyle = theme.accent;
+  for (let y = 0; y < H; y += 16) {
+    ctx.fillRect(0, y, 4, 1);
+    ctx.fillRect(W - 4, y, 4, 1);
+  }
+
+  if (theme.type === 'moss') {
+    // Moss dots on walls + scattered green pixels
+    ctx.fillStyle = '#2a5a2a';
+    for (let y = 0; y < H; y += 12) {
+      ctx.fillRect(1, y + (frameCount * 0.02 + y) % 3, 1, 1);
+      ctx.fillRect(W - 2, y + 4 + (frameCount * 0.02 + y) % 3, 1, 1);
+    }
+    ctx.fillStyle = '#1a3a1a';
+    // Moss patches on walls
+    ctx.fillRect(0, 80, 3, 4);
+    ctx.fillRect(0, 180, 4, 3);
+    ctx.fillRect(W - 3, 120, 3, 5);
+    ctx.fillRect(W - 4, 220, 4, 3);
+  } else if (theme.type === 'volcanic') {
+    // Red cracks on walls
+    ctx.fillStyle = '#5a1a10';
+    ctx.fillRect(1, 60, 1, 20);
+    ctx.fillRect(2, 75, 1, 10);
+    ctx.fillRect(W - 2, 100, 1, 25);
+    ctx.fillRect(W - 3, 120, 1, 8);
+    // Drifting ember particles (decorative, not vfx)
+    ctx.fillStyle = '#ff6620';
+    for (let i = 0; i < 5; i++) {
+      const ex = 10 + (i * 67 + frameCount * 0.3) % (W - 20);
+      const ey = H - ((i * 43 + frameCount * 0.5) % H);
+      ctx.globalAlpha = 0.4 + 0.3 * Math.sin(frameCount * 0.1 + i);
+      ctx.fillRect(Math.round(ex), Math.round(ey), 1, 1);
+    }
+    ctx.globalAlpha = 1;
+  } else if (theme.type === 'boss') {
+    // Pulsing purple/red glow from bottom
+    const pulse = 0.5 + 0.5 * Math.sin(frameCount * 0.04);
+    for (let band = 0; band < 5; band++) {
+      const by = H - 20 - band * 15;
+      ctx.globalAlpha = (0.06 + pulse * 0.06) * (1 - band * 0.18);
+      ctx.fillStyle = band % 2 === 0 ? '#6a1a40' : '#3a0a30';
+      ctx.fillRect(0, by, W, 15);
+    }
+    ctx.globalAlpha = 1;
+    // Organic irregular walls
+    ctx.fillStyle = '#2a0a20';
+    for (let y = 0; y < H; y += 8) {
+      const w = 3 + Math.sin(y * 0.2 + frameCount * 0.02) * 2;
+      ctx.fillRect(0, y, Math.round(w), 8);
+      ctx.fillRect(Math.round(W - w), y, Math.round(w), 8);
+    }
+  }
+}
+
+// ── Dungeon Map ───────────────────────────────────────────────────
+
+function renderDungeonMap() {
+  const mapX = 12;
+  const mapY = 50;
+  const nodeSpacing = 14;
+  const nodeR = 3;
+
+  // Vertical line
+  ctx.strokeStyle = '#333344';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(mapX, mapY);
+  ctx.lineTo(mapX, mapY + 9 * nodeSpacing);
+  ctx.stroke();
+
+  for (let f = 1; f <= 10; f++) {
+    const ny = mapY + (f - 1) * nodeSpacing;
+    const isCurrent = f === floor;
+    const isCompleted = f < floor;
+    const isBoss = f === 10;
+
+    // Node
+    const r = isBoss ? nodeR + 2 : nodeR;
+    if (isCurrent) {
+      // Pulsing border
+      const pulse = 0.5 + 0.5 * Math.sin(frameCount * 0.1);
+      ctx.fillStyle = '#ffdd44';
+      ctx.fillRect(mapX - r - 1, ny - r - 1, (r + 1) * 2, (r + 1) * 2);
+      ctx.globalAlpha = pulse;
+      ctx.strokeStyle = '#ffff88';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(mapX - r - 2, ny - r - 2, (r + 2) * 2, (r + 2) * 2);
+      ctx.globalAlpha = 1;
+    } else if (isCompleted) {
+      ctx.fillStyle = '#334433';
+    } else if (isBoss) {
+      ctx.fillStyle = '#5a1a30';
+    } else {
+      ctx.fillStyle = '#444455';
+    }
+    ctx.fillRect(mapX - r, ny - r, r * 2, r * 2);
+
+    // Floor number
+    ctx.fillStyle = isCurrent ? '#ffdd44' : (isCompleted ? '#556655' : (isBoss ? '#aa3366' : '#777788'));
+    ctx.font = '3px "Press Start 2P"';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${f}`, mapX + r + 3, ny + 1);
+  }
+
+  // Player indicator on current floor
+  const py = mapY + (floor - 1) * nodeSpacing;
+  ctx.fillStyle = '#88ff88';
+  ctx.fillRect(mapX - 1, py - 1, 2, 2);
 }
 
 // Animation frame
@@ -382,6 +701,15 @@ function beginRun() {
   enemies = [];
   lootCards = [];
 
+  // Reset VFX
+  vfxParticles = [];
+  slashEffect = null;
+  screenFlash = null;
+  shieldEffect = null;
+  floorTransition = null;
+  bossCinematic = null;
+  bossCinematicScale = 0;
+
   const overlay = document.getElementById('citadelOverlay');
   overlay.classList.add('hidden');
   document.getElementById('citadelHud').style.display = '';
@@ -430,6 +758,7 @@ function getMaxHp() {
 // ── Floor / Path Generation ────────────────────────────────────────
 
 function advanceFloor() {
+  const prevFloor = floor;
   floor++;
   player.defending = false;
   player.slowDebuff = 0;
@@ -446,20 +775,300 @@ function advanceFloor() {
     return;
   }
 
-  if (floor === 10) {
-    // Boss floor — no choice
-    phase = 'combat';
-    startCombat([createEnemy('motherbug')]);
-    addLog(`--- Floor 10: The Mother Bug ---`);
+  // Floor 1: no transition (run just started)
+  if (floor === 1) {
+    generatePaths();
+    phase = 'pathSelect';
+    selectedPath = -1;
+    pathHover = -1;
+    completedPaths = [];
     return;
   }
 
-  // Generate paths
+  // Floors 2+: play floor transition animation
+  startFloorTransition(prevFloor, floor);
+}
+
+function startFloorTransition(fromFloor, toFloor) {
+  floorTransition = { timer: 0, maxTimer: 90, fromFloor, toFloor };
+  phase = 'floorTransition';
+}
+
+function finishFloorTransition() {
+  const toFloor = floorTransition.toFloor;
+  floorTransition = null;
+
+  if (toFloor === 10) {
+    startBossCinematic();
+    return;
+  }
+
   generatePaths();
   phase = 'pathSelect';
   selectedPath = -1;
   pathHover = -1;
   completedPaths = [];
+}
+
+function renderFloorTransition() {
+  if (!floorTransition) return;
+  const t = floorTransition.timer;
+  const max = floorTransition.maxTimer;
+  const fromTheme = getFloorTheme(floorTransition.fromFloor);
+  const toTheme = getFloorTheme(floorTransition.toFloor);
+
+  if (t < 30) {
+    // Phase 1: current floor fades to black, text fades out, walls scroll up
+    const fade = t / 30;
+    // Redraw from-floor bg with fading
+    ctx.globalAlpha = 1 - fade;
+    renderDungeonBackground(fromTheme);
+    ctx.globalAlpha = 1;
+    // Black overlay
+    ctx.fillStyle = '#000';
+    ctx.globalAlpha = fade;
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+    // Floor text fading out
+    ctx.globalAlpha = 1 - fade;
+    ctx.fillStyle = '#c0a0d0';
+    ctx.font = '8px "Press Start 2P"';
+    ctx.textAlign = 'center';
+    ctx.fillText(`Floor ${floorTransition.fromFloor}`, CX, CY);
+    ctx.globalAlpha = 1;
+    // Scrolling wall bricks
+    const scrollY = t * 3;
+    ctx.fillStyle = fromTheme.wall;
+    for (let y = -scrollY % 16; y < H; y += 16) {
+      ctx.fillRect(0, y, 4, 8);
+      ctx.fillRect(W - 4, y, 4, 8);
+    }
+  } else if (t < 60) {
+    // Phase 2: black screen, scrolling walls, flickering torchlight, "Descending..."
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+    // Scrolling stone walls
+    const scrollY = t * 3;
+    ctx.fillStyle = '#1a1a22';
+    for (let y = -scrollY % 16; y < H; y += 16) {
+      ctx.fillRect(0, y, 4, 8);
+      ctx.fillRect(W - 4, y, 4, 8);
+    }
+    ctx.fillStyle = '#333';
+    for (let y = -scrollY % 16; y < H; y += 16) {
+      ctx.fillRect(0, y, 4, 1);
+      ctx.fillRect(W - 4, y, 4, 1);
+    }
+    // Flickering torch glow
+    const flicker = 0.3 + 0.2 * Math.sin(t * 0.5);
+    ctx.globalAlpha = flicker;
+    ctx.fillStyle = '#ff8830';
+    ctx.fillRect(1, CY - 5, 3, 5);
+    ctx.fillRect(W - 4, CY - 5, 3, 5);
+    ctx.globalAlpha = 1;
+    // "Descending..." text
+    const textFade = Math.min(1, (t - 30) / 10);
+    ctx.globalAlpha = textFade * (0.7 + 0.3 * Math.sin(t * 0.15));
+    ctx.fillStyle = '#8a7a9a';
+    ctx.font = '6px "Press Start 2P"';
+    ctx.textAlign = 'center';
+    ctx.fillText('Descending...', CX, CY);
+    ctx.globalAlpha = 1;
+  } else {
+    // Phase 3: new floor bg fades in, floor text fades in
+    const fade = (t - 60) / 30;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = fade;
+    renderDungeonBackground(toTheme);
+    ctx.globalAlpha = 1;
+    // Floor text fading in
+    ctx.globalAlpha = fade;
+    ctx.fillStyle = '#c0a0d0';
+    ctx.font = '8px "Press Start 2P"';
+    ctx.textAlign = 'center';
+    ctx.fillText(`Floor ${floorTransition.toFloor}`, CX, CY);
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ── Boss Cinematic ────────────────────────────────────────────────
+
+function startBossCinematic() {
+  bossCinematic = { timer: 0, maxTimer: 270, phase: 0 };
+  bossCinematicScale = 0;
+  phase = 'bossCinematic';
+}
+
+function finishBossCinematic() {
+  bossCinematic = null;
+  phase = 'combat';
+  startCombat([createEnemy('motherbug')]);
+  addLog(`--- Floor 10: The Mother Bug ---`);
+}
+
+function renderBossCinematic() {
+  if (!bossCinematic) return;
+  const t = bossCinematic.timer;
+  const theme = getFloorTheme(10);
+
+  // Always draw boss arena bg
+  renderDungeonBackground(theme);
+
+  if (t < 60) {
+    // Phase 0: Screen darkens, "FLOOR 10" + "The Depths" text fades in
+    const fade = Math.min(1, t / 30);
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.globalAlpha = fade;
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = fade;
+    ctx.fillStyle = '#cc3355';
+    ctx.font = '10px "Press Start 2P"';
+    ctx.textAlign = 'center';
+    ctx.fillText('FLOOR 10', CX, CY - 20);
+    ctx.fillStyle = '#8a4a6a';
+    ctx.font = '6px "Press Start 2P"';
+    ctx.fillText('The Depths', CX, CY + 5);
+    ctx.globalAlpha = 1;
+  } else if (t < 120) {
+    // Phase 1: Screen shake intensifies, purple glow builds, particles rise
+    const progress = (t - 60) / 60;
+    const shakeAmp = progress * 4;
+    ctx.save();
+    ctx.translate(Math.sin(t * 1.5) * shakeAmp, Math.cos(t * 1.3) * shakeAmp * 0.5);
+
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(-5, -5, W + 10, H + 10);
+
+    // Purple glow from bottom
+    ctx.globalAlpha = progress * 0.4;
+    ctx.fillStyle = '#6a1a40';
+    ctx.fillRect(0, H - 60, W, 60);
+    ctx.fillStyle = '#4a0a30';
+    ctx.fillRect(0, H - 100, W, 40);
+    ctx.globalAlpha = 1;
+
+    // Rising purple particles
+    if (t % 3 === 0) {
+      spawnVfx(Math.random() * W, H, (Math.random() - 0.5) * 0.5, -1 - Math.random() * 1.5,
+        Math.random() > 0.5 ? '#aa33aa' : '#cc44cc', 2, 40, 'rise');
+    }
+
+    ctx.restore();
+  } else if (t < 180) {
+    // Phase 2: Mother Bug scales from 0→1 at center
+    const progress = (t - 120) / 60;
+    // Ease-out cubic
+    bossCinematicScale = 1 - Math.pow(1 - progress, 3);
+
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fillRect(0, 0, W, H);
+
+    // Draw boss sprite scaled
+    const bossEnemy = { type: 'motherbug', enraged: false, color: '#3a0a2a', isBoss: true };
+    const key = 'motherbug';
+    if (!spriteCache[key]) {
+      spriteCache[key] = generateEnemySprite(bossEnemy);
+    }
+    const spr = spriteCache[key];
+    const scale = bossCinematicScale * 3;
+    const dw = spr.width * scale;
+    const dh = spr.height * scale;
+
+    ctx.save();
+    ctx.globalAlpha = bossCinematicScale;
+    ctx.drawImage(spr, CX - dw / 2, CY - 10 - dh / 2, dw, dh);
+    ctx.restore();
+
+    // Particle burst at full scale
+    if (progress > 0.95 && t === 179) {
+      for (let i = 0; i < 30; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 1 + Math.random() * 3;
+        spawnVfx(CX, CY - 10, Math.cos(angle) * speed, Math.sin(angle) * speed,
+          Math.random() > 0.5 ? '#aa33aa' : '#ff33ff', 2.5, 30, 'spark');
+      }
+    }
+  } else if (t < 240) {
+    // Phase 3: "MOTHER BUG" name fades in, HP bar fills
+    const progress = (t - 180) / 60;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fillRect(0, 0, W, H);
+
+    // Boss sprite at full scale
+    const key2 = 'motherbug';
+    const spr2 = spriteCache[key2];
+    if (spr2) {
+      const scale2 = 3;
+      const dw2 = spr2.width * scale2;
+      const dh2 = spr2.height * scale2;
+      ctx.drawImage(spr2, CX - dw2 / 2, CY - 10 - dh2 / 2, dw2, dh2);
+    }
+
+    // Name
+    ctx.globalAlpha = Math.min(1, progress * 2);
+    ctx.fillStyle = '#ff2233';
+    ctx.font = '8px "Press Start 2P"';
+    ctx.textAlign = 'center';
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 2;
+    ctx.strokeText('MOTHER BUG', CX, CY + 40);
+    ctx.fillText('MOTHER BUG', CX, CY + 40);
+
+    // HP bar filling
+    const barW = 100;
+    const barH = 6;
+    const barX = CX - barW / 2;
+    const barY = CY + 50;
+    ctx.fillStyle = '#2a0a0a';
+    ctx.fillRect(barX, barY, barW, barH);
+    ctx.fillStyle = '#aa2233';
+    ctx.fillRect(barX, barY, Math.round(barW * Math.min(1, progress * 1.2)), barH);
+    ctx.strokeStyle = '#661122';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(barX, barY, barW, barH);
+    ctx.globalAlpha = 1;
+  } else {
+    // Phase 4: Hold, overlay fades lighter
+    const progress = (t - 240) / 30;
+
+    ctx.fillStyle = `rgba(0,0,0,${0.4 * (1 - progress * 0.5)})`;
+    ctx.fillRect(0, 0, W, H);
+
+    // Boss sprite
+    const key3 = 'motherbug';
+    const spr3 = spriteCache[key3];
+    if (spr3) {
+      const scale3 = 3;
+      const dw3 = spr3.width * scale3;
+      const dh3 = spr3.height * scale3;
+      ctx.drawImage(spr3, CX - dw3 / 2, CY - 10 - dh3 / 2, dw3, dh3);
+    }
+
+    ctx.fillStyle = '#ff2233';
+    ctx.font = '8px "Press Start 2P"';
+    ctx.textAlign = 'center';
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 2;
+    ctx.strokeText('MOTHER BUG', CX, CY + 40);
+    ctx.fillText('MOTHER BUG', CX, CY + 40);
+
+    const barW2 = 100;
+    const barH2 = 6;
+    const barX2 = CX - barW2 / 2;
+    const barY2 = CY + 50;
+    ctx.fillStyle = '#2a0a0a';
+    ctx.fillRect(barX2, barY2, barW2, barH2);
+    ctx.fillStyle = '#aa2233';
+    ctx.fillRect(barX2, barY2, barW2, barH2);
+    ctx.strokeStyle = '#661122';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(barX2, barY2, barW2, barH2);
+  }
+
+  // VFX particles always render during cinematic
+  renderVfxParticles();
 }
 
 function generatePaths() {
@@ -665,6 +1274,7 @@ function executePlayerAttack() {
   const target = enemies[targetEnemy];
   if (!target || !target.alive) return;
 
+  const attackedEnemyIndex = targetEnemy; // capture before retarget
   playerActionsLeft--;
 
   const rawDmg = getPlayerDamage();
@@ -677,7 +1287,7 @@ function executePlayerAttack() {
   target.flashTimer = 15;
 
   // Floating damage number on the enemy
-  const ePos = getEnemyScreenPos(targetEnemy);
+  const ePos = getEnemyScreenPos(attackedEnemyIndex);
   if (crit) {
     spawnDmgPopup(ePos.x, ePos.y - 5, `${dmg}`, '#ffdd00', 8);
   } else {
@@ -719,9 +1329,15 @@ function executePlayerAttack() {
   animating = true;
   animType = 'playerAttack';
   animTimer = 60;
-  animData = { target: targetEnemy, crit };
+  animData = { target: attackedEnemyIndex, crit };
   shakeTimer = 10;
   shakeTarget = 'enemy';
+
+  // Slash VFX
+  const slashPos = getEnemyScreenPos(attackedEnemyIndex);
+  const elemColors = { fire: '#ff6633', ice: '#66ccff', earth: '#88aa44', wind: '#aaddcc' };
+  const slashColor = selectedPlant?.potElement ? (elemColors[selectedPlant.potElement] || '#ffffaa') : '#ffffaa';
+  spawnSlashEffect(slashPos.x, slashPos.y, slashColor, crit);
 }
 
 function executePlayerDefend() {
@@ -732,6 +1348,7 @@ function executePlayerDefend() {
   animating = true;
   animType = 'defend';
   animTimer = 60;
+  spawnShieldEffect(CX, H - 100);
 }
 
 function executePlayerItem(beltIndex) {
@@ -743,6 +1360,11 @@ function executePlayerItem(beltIndex) {
     const healAmt = Math.round(player.maxHp * pct);
     player.hp = Math.min(player.maxHp, player.hp + healAmt);
     addLog(`Healed for ${healAmt} HP`);
+    // Green sparkle VFX
+    for (let i = 0; i < 15; i++) {
+      spawnVfx(CX + (Math.random() - 0.5) * 30, H - 90, (Math.random() - 0.5) * 0.5,
+        -0.8 - Math.random() * 0.7, '#44ee66', 2, 30 + Math.random() * 15, 'rise');
+    }
     animating = true;
     animType = 'heal';
     animTimer = 20;
@@ -765,6 +1387,17 @@ function executePlayerItem(beltIndex) {
     }
     addLog(`Bomb dealt ${dmg} to all enemies!`);
     retargetLeftmost();
+    // Bomb explosion VFX on each alive enemy
+    for (let bi2 = 0; bi2 < enemies.length; bi2++) {
+      const ePos2 = getEnemyScreenPos(bi2);
+      for (let j = 0; j < 10; j++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 0.8 + Math.random() * 2;
+        const color = Math.random() > 0.5 ? '#ff8833' : '#ff4422';
+        spawnVfx(ePos2.x, ePos2.y, Math.cos(angle) * speed, Math.sin(angle) * speed, color, 2, 20 + Math.random() * 10, 'spark');
+      }
+    }
+    screenFlash = { color: '#ff8800', timer: 6, maxTimer: 6, alpha: 0.2 };
     // Immediate victory visual if all enemies dead
     if (!enemies.some(e => e.alive)) {
       combatPhase = 'won';
@@ -881,6 +1514,7 @@ function executeEnemyAction(enemy) {
     shakeTarget = 'player';
     flashTimer = 10;
     flashTarget = 'player';
+    spawnImpactEffect(CX, H - 100);
   } else if (action === 'defend') {
     enemy.defending = true;
     addLog(`${enemy.name} defends!`);
@@ -1320,6 +1954,10 @@ function update() {
     shakeTimer = 0;
     flashTimer = 0;
     for (const e of enemies) e.flashTimer = 0;
+    vfxParticles = [];
+    slashEffect = null;
+    screenFlash = null;
+    shieldEffect = null;
   }
   if (shakeTimer > 0) shakeTimer--;
   if (flashTimer > 0) flashTimer--;
@@ -1334,6 +1972,31 @@ function update() {
     dmgPopups[i].timer--;
     dmgPopups[i].y -= 0.4; // float upward
     if (dmgPopups[i].timer <= 0) dmgPopups.splice(i, 1);
+  }
+
+  // Update VFX
+  updateVfxParticles();
+
+  // Update floor transition
+  if (phase === 'floorTransition' && floorTransition) {
+    if (fastMode) {
+      floorTransition.timer = floorTransition.maxTimer;
+    }
+    floorTransition.timer++;
+    if (floorTransition.timer >= floorTransition.maxTimer) {
+      finishFloorTransition();
+    }
+  }
+
+  // Update boss cinematic
+  if (phase === 'bossCinematic' && bossCinematic) {
+    if (fastMode) {
+      bossCinematic.timer = bossCinematic.maxTimer;
+    }
+    bossCinematic.timer++;
+    if (bossCinematic.timer >= bossCinematic.maxTimer) {
+      finishBossCinematic();
+    }
   }
 }
 
@@ -1363,19 +2026,14 @@ function render() {
   ctx.save();
   ctx.scale(CANVAS_SCALE, CANVAS_SCALE);
 
-  // Dark dungeon background
-  ctx.fillStyle = '#0a0a12';
-  ctx.fillRect(0, 0, W, H);
+  // Themed dungeon background
+  renderDungeonBackground(getFloorTheme(floor));
 
-  // Subtle grid pattern
-  ctx.fillStyle = '#0f0f1a';
-  for (let x = 0; x < W; x += 16) {
-    for (let y = 0; y < H; y += 16) {
-      if ((x + y) % 32 === 0) ctx.fillRect(x, y, 16, 16);
-    }
-  }
-
-  if (phase === 'pathSelect') {
+  if (phase === 'floorTransition') {
+    renderFloorTransition();
+  } else if (phase === 'bossCinematic') {
+    renderBossCinematic();
+  } else if (phase === 'pathSelect') {
     renderPathSelect();
   } else if (phase === 'combat') {
     renderCombat();
@@ -1390,7 +2048,7 @@ function render() {
   }
 
   // Toggle buttons + stats overlay (visible on pathSelect and combat)
-  if (phase === 'pathSelect' || phase === 'combat') {
+  if (phase === 'pathSelect' || phase === 'combat' || phase === 'floorTransition' || phase === 'bossCinematic') {
     renderToggleButtons();
     if (showStats) renderStatsOverlay();
   }
@@ -1401,7 +2059,7 @@ function render() {
 function renderToggleButtons() {
   const bw = 28;
   const bh = 10;
-  const bx = 5;
+  const bx = W - bw - 5;
   const bgap = 3;
 
   // QUIT button below floor indicator
@@ -1476,15 +2134,16 @@ function renderStatsOverlay() {
   }
   const colGap = 3;
   const sw = pad + maxLabelW + colGap + maxValW + pad;
-  const valX = sx + pad + maxLabelW + colGap;
+  const rx = W - sw - 5; // right-aligned
+  const valX = rx + pad + maxLabelW + colGap;
 
   // Background
   const sh = stats.length * lineH + 6;
   ctx.fillStyle = 'rgba(10, 10, 20, 0.85)';
-  ctx.fillRect(sx, sy, sw, sh);
+  ctx.fillRect(rx, sy, sw, sh);
   ctx.strokeStyle = '#444466';
   ctx.lineWidth = 0.5;
-  ctx.strokeRect(sx, sy, sw, sh);
+  ctx.strokeRect(rx, sy, sw, sh);
 
   ctx.font = '4px "Press Start 2P"';
   for (let i = 0; i < stats.length; i++) {
@@ -1492,7 +2151,7 @@ function renderStatsOverlay() {
     const ly = sy + 7 + i * lineH;
     ctx.textAlign = 'right';
     ctx.fillStyle = '#888899';
-    ctx.fillText(s.label, sx + pad + maxLabelW, ly);
+    ctx.fillText(s.label, rx + pad + maxLabelW, ly);
     ctx.textAlign = 'left';
     ctx.fillStyle = s.color;
     ctx.fillText(s.value, valX, ly);
@@ -1500,11 +2159,14 @@ function renderStatsOverlay() {
 }
 
 function renderPathSelect() {
+  // Dungeon map on left side
+  renderDungeonMap();
+
   // Title
   ctx.fillStyle = '#c0a0d0';
   ctx.font = '8px "Press Start 2P"';
   ctx.textAlign = 'center';
-  ctx.fillText(`Floor ${floor}`, CX, 20);
+  ctx.fillText(`Floor ${floor}`, CX + 10, 20);
 
   ctx.fillStyle = '#8a7a9a';
   ctx.font = '5px "Press Start 2P"';
@@ -1775,8 +2437,16 @@ function renderCombat() {
   // Turn queue indicator
   renderTurnQueue();
 
+  // VFX layers
+  renderVfxParticles();
+  renderSlashEffect();
+  renderShieldEffect();
+
   // Floating damage numbers (on top of everything)
   renderDmgPopups();
+
+  // Screen flash (very top)
+  renderScreenFlash();
 }
 
 function renderTurnQueue() {
@@ -2730,9 +3400,26 @@ function onClick(e) {
   const x = (e.clientX - rect.left) * scaleX;
   const y = (e.clientY - rect.top) * scaleY;
 
+  // Block clicks during non-interactive phases (except toggle buttons)
+  if (phase === 'floorTransition' || phase === 'bossCinematic') {
+    // Only allow toggle buttons during transitions
+    const bw = 28, bh = 10, bx = W - bw - 5, bgap = 3;
+    const quitY = 16;
+    const fastY = quitY + bh + bgap;
+    if (x >= bx && x <= bx + bw && y >= quitY && y <= quitY + bh) {
+      handleBack();
+      return;
+    }
+    if (x >= bx && x <= bx + bw && y >= fastY && y <= fastY + bh) {
+      fastMode = !fastMode;
+      return;
+    }
+    return;
+  }
+
   // Toggle buttons (visible on pathSelect and combat)
   if (phase === 'pathSelect' || phase === 'combat') {
-    const bw = 28, bh = 10, bx = 5, bgap = 3;
+    const bw = 28, bh = 10, bx = W - bw - 5, bgap = 3;
     const quitY = 16;
     const fastY = quitY + bh + bgap;
     const statsY = fastY + bh + bgap;

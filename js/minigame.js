@@ -1688,8 +1688,8 @@ function showStartScreen(plant) {
     <div class="mg-title">Plant Runner</div>
     <div class="mg-preview" id="mgPreview"></div>
     <div class="mg-instructions">
-      <span>Space/Up: Jump</span>
-      <span>Down/S: Duck</span>
+      <span>Jump: Space/Up/Tap Top</span>
+      <span>Duck: Down/S/Tap Bottom</span>
     </div>
     ${highScore > 0 ? `<div class="mg-high-score">Best: ${highScore}</div>` : ''}
     <button class="btn mg-play-btn" id="mgStartBtn">Start</button>
