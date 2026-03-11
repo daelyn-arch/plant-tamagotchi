@@ -1,0 +1,17 @@
+{
+  "name": "Plantle",
+  "short_name": "Plantle",
+  "description": "A daily plant-growing game. Water your plant, grow your garden, collect them all.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "theme_color": "#f5f0e1",
+  "background_color": "#f5f0e1",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
