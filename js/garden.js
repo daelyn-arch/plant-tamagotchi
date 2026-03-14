@@ -505,7 +505,7 @@ function showPlantDetail(container, plant, replayMode) {
 
   // Animated detail view — use growth replay if replay mode is active
   const detailWrap = overlay.querySelector('.detail-canvas-wrap');
-  const detailScale = getCanvasSize(plant.rarity) >= 96 ? 4 : 5;
+  const detailScale = getCanvasSize(plant.rarity) >= 96 ? 3 : 4;
   const animator = replayMode
     ? new GrowthReplayAnimator(detailWrap, plant, detailScale, { durationMs: 4000 })
     : new PlantAnimator(detailWrap, plant, detailScale);

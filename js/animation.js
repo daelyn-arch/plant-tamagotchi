@@ -1,7 +1,7 @@
 // Plant animation system — particles, sway, effects by rarity
 
 import { createCanvas, setPixel, clearCanvas, hsl } from './canvas-utils.js';
-import { renderPlant } from './plant-generator.js';
+import { renderPlant, renderPlantLayers } from './plant-generator.js';
 import { getCanvasSize, RARITY } from './plant-data.js';
 
 // ── Particle configs by rarity ─────────────────────────────────────
@@ -174,10 +174,11 @@ const SWAY_CLASS = {
 // ── Particle class ─────────────────────────────────────────────────
 
 class Particle {
-  constructor(config, canvasSize, rng) {
+  constructor(config, canvasSize, rng, pxScale) {
     this.alive = true;
     this.config = config;
     this.canvasSize = canvasSize;
+    this.pxScale = pxScale || 1;
 
     // Spawn around the plant (upper 70% of canvas, centered horizontally)
     this.x = canvasSize * 0.2 + rng() * canvasSize * 0.6;
@@ -253,8 +254,9 @@ class Particle {
     }
     this.y += this.vy;
 
-    // Gentle wind drift
-    this.vx += (Math.random() - 0.5) * this.config.drift * 0.3;
+    // Coherent wind drift (sine-based Perlin approximation)
+    const windT = (this.life * 0.01 + this.x * 0.05);
+    this.vx += (Math.sin(windT) * 0.5 + Math.sin(windT * 2.3) * 0.3) * this.config.drift * 0.3;
     // Clamp drift
     if (Math.abs(this.vx) > this.config.drift * 3) this.vx *= 0.9;
 
@@ -268,6 +270,13 @@ class Particle {
     if (t < 0.1) return t / 0.1;
     if (t > 0.7) return 1 - (t - 0.7) / 0.3;
     return 1;
+  }
+
+  sp(ctx, x, y, color) {
+    const s = this.pxScale;
+    if (s <= 1) { setPixel(ctx, x, y, color); return; }
+    ctx.fillStyle = color;
+    ctx.fillRect(Math.floor(x), Math.floor(y), s, s);
   }
 
   draw(ctx) {
@@ -313,18 +322,18 @@ class Particle {
 
     if (alpha < 0.4 && style !== 'star') {
       // Low alpha — just a dot
-      setPixel(ctx, px, py, color);
+      this.sp(ctx, px, py, color);
       return;
     }
 
     switch (style) {
       case 'dot':
-        setPixel(ctx, px, py, color);
+        this.sp(ctx, px, py, color);
         break;
 
       case 'leaf':
         // Tiny 2-3 pixel leaf
-        setPixel(ctx, px, py, color);
+        this.sp(ctx, px, py, color);
         if (this.size >= 2) {
           setPixel(ctx, px + 1, py, color);
           setPixel(ctx, px, py - 1, this.config.palette[Math.min(1, this.config.palette.length - 1)]);
@@ -333,7 +342,7 @@ class Particle {
 
       case 'sparkle':
         // Cross shape that twinkles
-        setPixel(ctx, px, py, color);
+        this.sp(ctx, px, py, color);
         if (Math.sin(this.twinklePhase) > 0.2) {
           setPixel(ctx, px - 1, py, color);
           setPixel(ctx, px + 1, py, color);
@@ -346,7 +355,7 @@ class Particle {
 
       case 'orb':
         // Glowing orb — bright center, dimmer edges
-        setPixel(ctx, px, py, this.config.palette[Math.min(3, this.config.palette.length - 1)]);
+        this.sp(ctx, px, py, this.config.palette[Math.min(3, this.config.palette.length - 1)]);
         if (this.size >= 2) {
           const dimColor = this.config.palette[Math.min(1, this.config.palette.length - 1)];
           setPixel(ctx, px - 1, py, dimColor);
@@ -358,7 +367,7 @@ class Particle {
 
       case 'star':
         // Multi-point star
-        setPixel(ctx, px, py, color);
+        this.sp(ctx, px, py, color);
         // 4-point
         setPixel(ctx, px - 1, py, color);
         setPixel(ctx, px + 1, py, color);
@@ -377,7 +386,7 @@ class Particle {
       case 'crystal': {
         // Diamond-shaped shard that rotates/twinkles
         const phase = Math.sin(this.twinklePhase);
-        setPixel(ctx, px, py, color);
+        this.sp(ctx, px, py, color);
         if (phase > -0.3) {
           setPixel(ctx, px, py - 1, this.config.palette[2]);
           setPixel(ctx, px, py + 1, this.config.palette[0]);
@@ -398,7 +407,7 @@ class Particle {
         // Falling star — bright head with diagonal trail
         const bright = this.config.palette[3];
         const dim = this.config.palette[0];
-        setPixel(ctx, px, py, bright);
+        this.sp(ctx, px, py, bright);
         // Tail going up-right
         setPixel(ctx, px + 1, py - 1, this.config.palette[2]);
         if (this.size >= 2) {
@@ -419,7 +428,7 @@ class Particle {
         const r = Math.max(1, Math.round(pulse * this.size));
         const bright = this.config.palette[2];
         const outer = this.config.palette[0];
-        setPixel(ctx, px, py, bright);
+        this.sp(ctx, px, py, bright);
         if (r >= 1) {
           setPixel(ctx, px - 1, py, outer);
           setPixel(ctx, px + 1, py, outer);
@@ -438,8 +447,9 @@ class Particle {
         const stretch = Math.sin(this.twinklePhase) > 0 ? 2 : 1;
         const c1 = this.config.palette[Math.min(2, this.config.palette.length - 1)];
         const c2 = this.config.palette[Math.min(4, this.config.palette.length - 1)];
+        this.sp(ctx, px, py, c2);
         for (let dx = -stretch; dx <= stretch; dx++) {
-          setPixel(ctx, px + dx, py, dx === 0 ? c2 : c1);
+          if (dx !== 0) setPixel(ctx, px + dx, py, c1);
         }
         if (this.size >= 2) {
           setPixel(ctx, px - 1, py - 1, c1);
@@ -454,7 +464,7 @@ class Particle {
         const pc = hsl(hue, 80, 65);
         const pc2 = hsl((hue + 120) % 360, 70, 75);
         const pc3 = hsl((hue + 240) % 360, 70, 75);
-        setPixel(ctx, px, py, '#ffffff');
+        this.sp(ctx, px, py, '#ffffff');
         // Triangle shape
         setPixel(ctx, px - 1, py + 1, pc);
         setPixel(ctx, px + 1, py + 1, pc2);
@@ -594,13 +604,10 @@ export class PlantAnimator {
     this.running = false;
     this.animFrameId = null;
 
-    // Cache the base plant render — do this first so we know actual canvas size
-    // (fusion plants may be larger than getCanvasSize due to 1.25x scaling)
-    this.basePlant = renderPlant(plant, plant.growthStage);
-    const size = this.basePlant.width;
-    this.pixelSize = size;
-    this.displayW = size * scale;
-    this.displayH = size * scale;
+    // Render plant as layers for parallax compositing
+    this._renderLayers(plant);
+
+    const size = this.pixelSize;
 
     // Particle config — species-specific for legendaries, reduce for mini mode
     const speciesOverride = LEGENDARY_SPECIES_PARTICLES[plant.species];
@@ -614,6 +621,8 @@ export class PlantAnimator {
     } else {
       this.particleConfig = base;
     }
+
+    this.pxScale = Math.max(1, Math.round(size / 40));
 
     this.particles = [];
     this.frameCount = 0;
@@ -638,8 +647,75 @@ export class PlantAnimator {
     this.compCtx = this.compCanvas.getContext('2d');
     this.compCtx.imageSmoothingEnabled = false;
 
+    // Layer parallax animation parameters (pixels of offset per layer)
+    // base: almost static, foliage: gentle shift, bloom: most movement
+    this.layerMotion = {
+      base:    { ampX: 0.0, ampY: 0.0, freqX: 0,    freqY: 0 },
+      foliage: { ampX: 0.6, ampY: 0.3, freqX: 0.02, freqY: 0.015 },
+      bloom:   { ampX: 0.9, ampY: 0.5, freqX: 0.025, freqY: 0.018 },
+    };
+
     // Frame interval: mini runs at ~15fps, full at ~30fps
     this.frameInterval = this.mini ? 66 : 33;
+
+    // Interactivity — click/tap jiggle + particle burst (full mode only)
+    if (!this.mini) {
+      this._onInteract = (e) => {
+        e.preventDefault();
+        this._handleInteract(e);
+      };
+    }
+  }
+
+  _handleInteract(e) {
+    // CSS jiggle animation
+    this.displayCanvas.classList.remove('plant-jiggle');
+    void this.displayCanvas.offsetWidth;
+    this.displayCanvas.classList.add('plant-jiggle');
+    setTimeout(() => this.displayCanvas.classList.remove('plant-jiggle'), 400);
+
+    // Particle burst at interaction point
+    const rect = this.displayCanvas.getBoundingClientRect();
+    let clientX, clientY;
+    if (e.touches && e.touches.length > 0) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
+    const px = ((clientX - rect.left) / rect.width) * this.pixelSize;
+    const py = ((clientY - rect.top) / rect.height) * this.pixelSize;
+
+    const burstCount = 8 + Math.floor(Math.random() * 5);
+    for (let i = 0; i < burstCount; i++) {
+      const angle = (i / burstCount) * Math.PI * 2;
+      const speed = 0.3 + Math.random() * 0.4;
+      const p = new Particle(this.particleConfig, this.pixelSize, this.rng, this.pxScale);
+      p.x = px;
+      p.y = py;
+      p.vx = Math.cos(angle) * speed;
+      p.vy = Math.sin(angle) * speed;
+      p.maxLife = 30 + Math.floor(Math.random() * 30);
+      this.particles.push(p);
+    }
+  }
+
+  /** Render or re-render the plant into 3 layer canvases */
+  _renderLayers(plant) {
+    if (this.mini) {
+      // Mini mode: single layer for performance
+      this.basePlant = renderPlant(plant, plant.growthStage);
+      this.layers = null;
+    } else {
+      this.layers = renderPlantLayers(plant, plant.growthStage);
+      // Use base layer width as pixel size (all layers same size)
+      this.basePlant = this.layers.base; // fallback reference
+    }
+    const size = this.basePlant.width;
+    this.pixelSize = size;
+    this.displayW = size * this.scale;
+    this.displayH = size * this.scale;
   }
 
   start() {
@@ -647,6 +723,10 @@ export class PlantAnimator {
     _activeAnimators.add(this);
     this.running = true;
     this.lastTime = performance.now();
+    if (this._onInteract) {
+      this.displayCanvas.addEventListener('click', this._onInteract);
+      this.displayCanvas.addEventListener('touchstart', this._onInteract, { passive: false });
+    }
     this.tick(this.lastTime);
   }
 
@@ -656,6 +736,10 @@ export class PlantAnimator {
       cancelAnimationFrame(this.animFrameId);
       this.animFrameId = null;
     }
+    if (this._onInteract && this.displayCanvas) {
+      this.displayCanvas.removeEventListener('click', this._onInteract);
+      this.displayCanvas.removeEventListener('touchstart', this._onInteract);
+    }
     _activeAnimators.delete(this);
   }
 
@@ -663,12 +747,11 @@ export class PlantAnimator {
    *  Preserves particles, sway animation phase, and avoids any blink. */
   updatePlant(plant) {
     this.plant = plant;
-    this.basePlant = renderPlant(plant, plant.growthStage);
-    const newSize = this.basePlant.width;
+    this._renderLayers(plant);
+    const newSize = this.pixelSize;
 
     // If pixel size changed (rarity upgrade), resize canvases
-    if (newSize !== this.pixelSize) {
-      this.pixelSize = newSize;
+    if (this.compCanvas.width !== newSize) {
       this.displayW = newSize * this.scale;
       this.displayH = newSize * this.scale;
       this.displayCanvas.width = this.displayW;
@@ -699,7 +782,7 @@ export class PlantAnimator {
     if (this.particles.length < this.particleConfig.count) {
       if (Math.random() < this.particleConfig.spawnRate) {
         this.particles.push(
-          new Particle(this.particleConfig, this.pixelSize, this.rng)
+          new Particle(this.particleConfig, this.pixelSize, this.rng, this.pxScale)
         );
       }
     }
@@ -714,11 +797,31 @@ export class PlantAnimator {
   }
 
   render() {
-    // Clear compositing canvas
-    this.compCtx.clearRect(0, 0, this.pixelSize, this.pixelSize);
+    const sz = this.pixelSize;
+    this.compCtx.clearRect(0, 0, sz, sz);
 
-    // Draw base plant
-    this.compCtx.drawImage(this.basePlant, 0, 0);
+    if (this.layers) {
+      // ── Layered parallax compositing ──
+      const f = this.frameCount;
+
+      // Base layer: static (pot, stem, branches)
+      this.compCtx.drawImage(this.layers.base, 0, 0);
+
+      // Foliage layer: gentle independent sway
+      const fm = this.layerMotion.foliage;
+      const fox = Math.sin(f * fm.freqX) * fm.ampX;
+      const foy = Math.sin(f * fm.freqY + 0.7) * fm.ampY;
+      this.compCtx.drawImage(this.layers.foliage, Math.round(fox), Math.round(foy));
+
+      // Bloom layer: slightly more movement, different phase
+      const bm = this.layerMotion.bloom;
+      const box = Math.sin(f * bm.freqX + 1.5) * bm.ampX;
+      const boy = Math.sin(f * bm.freqY + 2.2) * bm.ampY;
+      this.compCtx.drawImage(this.layers.bloom, Math.round(box), Math.round(boy));
+    } else {
+      // Mini mode: flat compositing
+      this.compCtx.drawImage(this.basePlant, 0, 0);
+    }
 
     // Draw particles on top at pixel scale
     for (const p of this.particles) {

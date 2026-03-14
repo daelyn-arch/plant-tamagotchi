@@ -179,6 +179,11 @@ export function animateGrowthTransition(oldGrowthStage, newState, durationMs = 1
   const growthInfo = document.getElementById('growthInfo');
   const startTime = performance.now();
 
+  // Milestone tracking
+  const milestones = [25, 50, 75, 100];
+  const oldPct = Math.floor(oldGrowthStage * 100);
+  const triggeredMilestones = new Set();
+
   function tick(now) {
     const elapsed = now - startTime;
     const t = Math.min(1, elapsed / durationMs);
@@ -188,6 +193,22 @@ export function animateGrowthTransition(oldGrowthStage, newState, durationMs = 1
     const currentStage = oldGrowthStage + (targetStage - oldGrowthStage) * eased;
     const currentDays = oldDaysGrown + (plant.daysGrown - oldDaysGrown) * eased;
     const pct = Math.min(Math.floor(currentStage * 100), 100);
+
+    // Check milestone crossings
+    for (const ms of milestones) {
+      if (pct >= ms && oldPct < ms && !triggeredMilestones.has(ms)) {
+        triggeredMilestones.add(ms);
+        const plantDisplay = document.querySelector('.plant-display');
+        if (plantDisplay) {
+          const cls = `milestone-${ms}`;
+          plantDisplay.classList.remove(cls);
+          void plantDisplay.offsetWidth;
+          plantDisplay.classList.add(cls);
+          const dur = ms === 100 ? 1400 : ms === 75 ? 1000 : ms === 50 ? 900 : 800;
+          setTimeout(() => plantDisplay.classList.remove(cls), dur);
+        }
+      }
+    }
 
     // Update progress bar
     fill.style.width = `${pct}%`;
@@ -334,15 +355,49 @@ export function showToast(message, type = 'info') {
 export function playWaterAnimation(canvasWrap) {
   const drops = document.createElement('div');
   drops.className = 'water-drops';
-  for (let i = 0; i < 5; i++) {
+  const sizeClasses = ['water-drop-sm', 'water-drop-md', 'water-drop-lg'];
+  for (let i = 0; i < 9; i++) {
     const drop = document.createElement('div');
-    drop.className = 'water-drop';
-    drop.style.left = `${20 + Math.random() * 60}%`;
-    drop.style.animationDelay = `${i * 0.1}s`;
+    const sizeClass = sizeClasses[Math.floor(Math.random() * sizeClasses.length)];
+    drop.className = `water-drop ${sizeClass}`;
+    drop.style.left = `${15 + Math.random() * 70}%`;
+    drop.style.animationDelay = `${i * 0.07}s`;
+    drop.style.setProperty('--dx', `${(Math.random() - 0.5) * 16}px`);
     drops.appendChild(drop);
   }
   canvasWrap.appendChild(drops);
-  setTimeout(() => drops.remove(), 1000);
+
+  // Splash particles at bottom
+  setTimeout(() => {
+    for (let i = 0; i < 6; i++) {
+      const splash = document.createElement('div');
+      splash.className = 'water-splash';
+      splash.style.left = `${25 + Math.random() * 50}%`;
+      splash.style.bottom = `${20 + Math.random() * 10}%`;
+      splash.style.animationDelay = `${i * 0.05}s`;
+      drops.appendChild(splash);
+    }
+  }, 500);
+
+  // Ripple at soil line
+  setTimeout(() => {
+    const ripple = document.createElement('div');
+    ripple.className = 'water-ripple';
+    drops.appendChild(ripple);
+  }, 550);
+
+  // Growth pulse on plant display
+  setTimeout(() => {
+    const plantDisplay = document.querySelector('.plant-display');
+    if (plantDisplay) {
+      plantDisplay.classList.remove('growth-pulse');
+      void plantDisplay.offsetWidth;
+      plantDisplay.classList.add('growth-pulse');
+      setTimeout(() => plantDisplay.classList.remove('growth-pulse'), 800);
+    }
+  }, 700);
+
+  setTimeout(() => drops.remove(), 1500);
 }
 
 // Stop the active animator

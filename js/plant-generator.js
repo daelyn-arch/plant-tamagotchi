@@ -10,6 +10,7 @@ import {
   hsl,
   ELEMENTAL_POT_PALETTES,
   potLevelFromExp,
+  applyOutline,
 } from './canvas-utils.js';
 import {
   getCanvasSize,
@@ -521,12 +522,15 @@ function drawStem(ctx, cx, soilY, height, palette, rng, complexity, size) {
   const driftDir = rng.chance(0.5) ? 1 : -1;
   const curviness = rng.float(0.03, 0.1);
 
-  // Determine stem thickness
-  const baseThick = complexity >= 4 ? 3 : complexity >= 2 ? 2 : 1;
+  // Scale thickness with canvas size
+  const scaleFactor = size / 32;
+  const baseThick = Math.max(1, Math.round((complexity >= 4 ? 3 : complexity >= 2 ? 2 : 1) * scaleFactor));
 
   // Stem color — brown-green for woody plants, green for others
   const stemDark = complexity >= 4 ? palette.stem || green[0] : green[0];
   const stemMid = green[1];
+  const stemHighlight = green[2];
+  const stemReflect = green[3];
 
   for (let y = soilY - 1; y >= stemTop; y--) {
     drift += (rng.random() - 0.5 + driftDir * curviness);
@@ -536,23 +540,38 @@ function drawStem(ctx, cx, soilY, height, palette, rng, complexity, size) {
     // Thickness tapers from base to tip
     const progress = (soilY - y) / height; // 0 at base, 1 at tip
     const thick = Math.max(1, Math.round(baseThick * (1 - progress * 0.6)));
+    const half = Math.floor(thick / 2);
 
-    for (let t = -Math.floor(thick / 2); t <= Math.floor(thick / 2); t++) {
-      const isEdge = Math.abs(t) === Math.floor(thick / 2) && thick > 1;
-      // Cylindrical highlight — lighter on one consistent side
-      const isHighlight = t === Math.floor(thick / 2) - 1 && thick >= 2;
-      setPixel(ctx, px + t, y, isEdge ? stemDark : (isHighlight ? green[2] : stemMid));
+    for (let t = -half; t <= half; t++) {
+      // Gradient across width: dark edge -> mid -> bright highlight -> mid -> subtle reflection
+      let color;
+      if (thick <= 1) {
+        color = stemMid;
+      } else {
+        const pos = (t + half) / (thick - 1); // 0 = left edge, 1 = right edge
+        if (pos <= 0.15 || pos >= 0.85) {
+          color = stemDark;
+        } else if (pos >= 0.35 && pos <= 0.5) {
+          color = stemHighlight;
+        } else if (pos >= 0.5 && pos <= 0.65) {
+          color = stemReflect;
+        } else {
+          color = stemMid;
+        }
+      }
+      setPixel(ctx, px + t, y, color);
     }
 
-    // Node joints every 3-4px — slight bulge
-    if ((soilY - y) % 4 === 0 && thick >= 2 && progress > 0.1 && progress < 0.85) {
-      setPixel(ctx, px - Math.floor(thick / 2) - 1, y, stemDark);
-      setPixel(ctx, px + Math.floor(thick / 2) + 1, y, stemDark);
+    // Node joints — slight bulge, scaled spacing
+    const nodeSpacing = Math.max(4, Math.round(4 * scaleFactor));
+    if ((soilY - y) % nodeSpacing === 0 && thick >= 2 && progress > 0.1 && progress < 0.85) {
+      setPixel(ctx, px - half - 1, y, stemDark);
+      setPixel(ctx, px + half + 1, y, stemDark);
     }
 
     // Bark texture on thick stems
     if (thick >= 2 && rng.chance(0.15)) {
-      setPixel(ctx, px + rng.int(-Math.floor(thick / 2), Math.floor(thick / 2)), y, green[0]);
+      setPixel(ctx, px + rng.int(-half, half), y, green[0]);
     }
 
     points.push({ x: px, y });
@@ -566,7 +585,8 @@ function drawStem(ctx, cx, soilY, height, palette, rng, complexity, size) {
 function drawBranches(ctx, stemPoints, palette, rng, complexity, growthStage, size) {
   const green = palette.greens;
   const branchPoints = [];
-  const numBranches = complexity + rng.int(1, 3);
+  const scaleFactor = size / 32;
+  const numBranches = Math.round((complexity + rng.int(1, 3)) * scaleFactor);
 
   // Try to space branches out vertically
   const usedZones = [];
@@ -585,7 +605,10 @@ function drawBranches(ctx, stemPoints, palette, rng, complexity, growthStage, si
     usedZones.push(zone);
 
     const dir = rng.chance(0.5) ? -1 : 1;
-    const branchLen = rng.int(3, Math.max(4, Math.floor(stemPoints.length * 0.45)));
+    const branchLen = rng.int(
+      Math.round(3 * scaleFactor),
+      Math.max(Math.round(4 * scaleFactor), Math.floor(stemPoints.length * 0.45))
+    );
     let bx = start.x;
     let by = start.y;
     const upBias = rng.float(0.3, 0.6);
@@ -597,9 +620,10 @@ function drawBranches(ctx, stemPoints, palette, rng, complexity, growthStage, si
       if (rng.chance(localUpBias)) by -= 1;
       else if (rng.chance(0.1)) by += 1;
 
-      // Branch thickness tapers toward tips
+      // Branch thickness tapers toward tips, scaled
       const branchProgress = j / branchLen;
-      const thick = branchProgress < 0.25 && complexity >= 3 ? 2 : 1;
+      const baseThick = Math.max(1, Math.round(2 * scaleFactor));
+      const thick = branchProgress < 0.25 && complexity >= 3 ? baseThick : Math.max(1, Math.round(scaleFactor));
       for (let t = 0; t < thick; t++) {
         // Lighter color toward tips
         const shade = branchProgress > 0.7 ? 1 : (rng.chance(0.4) ? 0 : 1);
@@ -607,11 +631,11 @@ function drawBranches(ctx, stemPoints, palette, rng, complexity, growthStage, si
       }
       branchPoints.push({ x: bx, y: by });
 
-      // Sub-branches for high complexity
-      if (complexity >= 4 && j > branchLen * 0.4 && rng.chance(0.25)) {
+      // Sub-branches — more frequent and longer with scale
+      if (complexity >= 3 && j > branchLen * 0.35 && rng.chance(0.3)) {
         const subDir = rng.chance(0.5) ? -1 : 1;
         let sx = bx, sy = by;
-        const subLen = rng.int(2, 4);
+        const subLen = rng.int(Math.round(2 * scaleFactor), Math.round(5 * scaleFactor));
         for (let k = 0; k < subLen; k++) {
           sx += subDir;
           if (rng.chance(0.5)) sy -= 1;
@@ -629,15 +653,66 @@ function drawBranches(ctx, stemPoints, palette, rng, complexity, growthStage, si
 
 function drawLeaf(ctx, x, y, template, colors, flip, rng) {
   const pixels = LEAF_TEMPLATES[template] || LEAF_TEMPLATES.round;
+
+  // Build a set for fast neighbor lookup to compute distance-from-edge
+  const pixelSet = new Set();
+  for (const [dx, dy] of pixels) {
+    pixelSet.add(`${dx},${dy}`);
+  }
+
+  // Compute distance from edge for each pixel (how many layers deep it is)
+  const edgeDist = new Map();
+  for (const [dx, dy] of pixels) {
+    // A pixel is on the edge if any of its 4-neighbors is NOT in the template
+    const neighbors = [[dx-1,dy],[dx+1,dy],[dx,dy-1],[dx,dy+1]];
+    const isEdge = neighbors.some(([nx, ny]) => !pixelSet.has(`${nx},${ny}`));
+    if (isEdge) {
+      edgeDist.set(`${dx},${dy}`, 0);
+    }
+  }
+
+  // BFS to compute distance from edge for inner pixels
+  const queue = [...edgeDist.entries()].map(([k, d]) => {
+    const [dx, dy] = k.split(',').map(Number);
+    return { dx, dy, d };
+  });
+  let qi = 0;
+  while (qi < queue.length) {
+    const { dx, dy, d } = queue[qi++];
+    const neighbors = [[dx-1,dy],[dx+1,dy],[dx,dy-1],[dx,dy+1]];
+    for (const [nx, ny] of neighbors) {
+      const key = `${nx},${ny}`;
+      if (pixelSet.has(key) && !edgeDist.has(key)) {
+        edgeDist.set(key, d + 1);
+        queue.push({ dx: nx, dy: ny, d: d + 1 });
+      }
+    }
+  }
+
+  // Find max distance for normalization
+  let maxDist = 0;
+  for (const d of edgeDist.values()) {
+    if (d > maxDist) maxDist = d;
+  }
+
+  // Draw each pixel with distance-from-edge gradient
   for (const [dx, dy] of pixels) {
     const fx = flip ? -dx : dx;
-    // Vary shade per pixel for depth
-    const shade = rng.int(0, colors.length - 1);
-    // Edges darker, center lighter
-    const dist = Math.abs(dx) + Math.abs(dy);
-    const edgeShade = dist > 2 ? Math.max(0, shade - 1) : shade;
-    setPixel(ctx, x + fx, y + dy, colors[edgeShade]);
+    const dist = edgeDist.get(`${dx},${dy}`) || 0;
+    // Map distance to color: 0 = darkest (edge), max = highlight (center)
+    let colorIdx;
+    if (maxDist <= 1) {
+      // Very small leaf — just use two tones
+      colorIdx = dist === 0 ? 0 : 1;
+    } else {
+      const t = dist / maxDist; // 0 = edge, 1 = center
+      if (t <= 0.25) colorIdx = 0;       // darkest
+      else if (t <= 0.55) colorIdx = 1;  // mid
+      else colorIdx = 2;                  // bright/highlight
+    }
+    setPixel(ctx, x + fx, y + dy, colors[Math.min(colorIdx, colors.length - 1)]);
   }
+
   // Subtle center vein — draw a darker line along the leaf midrib
   const midPixels = pixels.filter(([dx]) => dx === 0);
   if (midPixels.length > 1) {
@@ -649,10 +724,10 @@ function drawLeaf(ctx, x, y, template, colors, flip, rng) {
 
 function drawLeaves(ctx, points, palette, rng, leafType, growthStage, complexity, size) {
   const green = palette.greens;
-  // More leaves for bigger / more complex plants
-  const density = 0.3 + complexity * 0.15;
+  // More leaves for bigger / more complex plants — slightly increased density
+  const density = 0.35 + complexity * 0.18;
   const numLeaves = Math.max(
-    2,
+    3,
     Math.floor(points.length * density * growthStage)
   );
 
@@ -660,11 +735,26 @@ function drawLeaves(ctx, points, palette, rng, leafType, growthStage, complexity
   const sorted = [...points].sort((a, b) => a.y - b.y);
   const tipBias = sorted.slice(0, Math.floor(sorted.length * 0.6));
 
-  for (let i = 0; i < numLeaves; i++) {
-    // 70% chance to pick from upper portion
+  // Draw in 2 layers for depth: back layer (darker), then front layer (brighter)
+  const backCount = Math.floor(numLeaves * 0.4);
+  const frontCount = numLeaves - backCount;
+
+  // Back layer — darker shades
+  for (let i = 0; i < backCount; i++) {
+    const pt = rng.chance(0.6) ? rng.pick(tipBias) : rng.pick(points);
+    const flip = rng.chance(0.5);
+    const leafColors = [
+      green[0],
+      green[1],
+      green[Math.min(2, green.length - 1)],
+    ];
+    drawLeaf(ctx, pt.x, pt.y, leafType, leafColors, flip, rng);
+  }
+
+  // Front layer — brighter shades
+  for (let i = 0; i < frontCount; i++) {
     const pt = rng.chance(0.7) ? rng.pick(tipBias) : rng.pick(points);
     const flip = rng.chance(0.5);
-    // Use 2-3 shades for each leaf for richness
     const baseShade = rng.int(1, 3);
     const leafColors = [
       green[Math.max(0, baseShade - 1)],
@@ -1568,6 +1658,8 @@ function renderHybridPlant(plant, growthStage, frameOffset) {
     const shimmerRng = createRng(plant.seed + 777);
     drawFusionShimmer(ctx, size, shimmerRng, frameOffset);
   }
+
+  applyOutline(ctx, size);
 
   // Completion sparkles
   if (growthStage >= 1.0) {
@@ -3114,6 +3206,7 @@ function renderPlantBody(plant, growthStage, frameOffset) {
   const { soilY, cx } = drawPot(ctx, size, palette, rng, plant.potElement, plant.potLevel || 0, plant.seed);
 
   if (growthStage < 0.05) {
+    applyOutline(ctx, size);
     return canvas;
   }
 
@@ -3122,8 +3215,9 @@ function renderPlantBody(plant, growthStage, frameOffset) {
   const stemProgress = Math.min(1, growthStage / 0.7);
   const stemHeight = Math.max(3, Math.floor(maxStemHeight * stemProgress));
 
-  // Helper: completion sparkles
+  // Helper: outline + completion sparkles
   function finishWithSparkles() {
+    applyOutline(ctx, size);
     if (growthStage >= 1.0) {
       const sparkRng = createRng(plant.seed + 999);
       drawSparkles(ctx, size, sparkRng, frameOffset);
@@ -3306,6 +3400,184 @@ function renderPlantBody(plant, growthStage, frameOffset) {
   }
 
   return finishWithSparkles();
+}
+
+/**
+ * Render plant as 3 separate layers for parallax compositing.
+ * Returns { base, foliage, bloom } — each a canvas of the same size.
+ * - base:    pot, stem, branches, species body (structural)
+ * - foliage: leaves (greenery that sways)
+ * - bloom:   flowers, sparkles (topmost, most movement)
+ * Species with custom renderers draw body on base; shared drawLeaves/drawFlowers
+ * go to foliage/bloom layers. Fully self-contained species render to base only.
+ */
+export function renderPlantLayers(plant, growthStage, frameOffset = 0) {
+  const size = getCanvasSize(plant.rarity);
+  const { canvas: baseCanvas, ctx: baseCtx } = createCanvas(size, size);
+  const { canvas: foliageCanvas, ctx: foliageCtx } = createCanvas(size, size);
+  const { canvas: bloomCanvas, ctx: bloomCtx } = createCanvas(size, size);
+
+  const rng = createRng(plant.seed);
+  const palette = generatePalette(rng, plant.species);
+  const species = plant.species;
+  const complexity = plant.complexity || 2;
+
+  clearCanvas(baseCtx, size, size);
+
+  // Pot always on base
+  const { soilY, cx } = drawPot(baseCtx, size, palette, rng, plant.potElement, plant.potLevel || 0, plant.seed);
+
+  if (growthStage < 0.05) {
+    applyOutline(baseCtx, size);
+    return { base: baseCanvas, foliage: foliageCanvas, bloom: bloomCanvas };
+  }
+
+  const maxStemHeight = Math.floor((soilY - 4) * 0.78);
+  const stemProgress = Math.min(1, growthStage / 0.7);
+  const stemHeight = Math.max(3, Math.floor(maxStemHeight * stemProgress));
+
+  // Helper: apply outline to each layer, then sparkles on bloom
+  function addSparkles() {
+    applyOutline(baseCtx, size);
+    applyOutline(foliageCtx, size);
+    applyOutline(bloomCtx, size);
+    if (growthStage >= 1.0) {
+      const sparkRng = createRng(plant.seed + 999);
+      drawSparkles(bloomCtx, size, sparkRng, frameOffset);
+    }
+  }
+
+  // Face overlay on base (for animated plants)
+  function addFace() {
+    if (plant.animated && growthStage >= 0.2) {
+      const faceRng = createRng(plant.seed + 555);
+      drawFace(baseCtx, size, faceRng, plant.sunglasses);
+    }
+  }
+
+  // ── Species-specific: body goes on base, we split leaves/flowers where possible ──
+
+  // Species with fully custom renderers — everything on base, no layer split
+  const fullyCustom = [
+    'Succulent', 'Crystal Tree', 'Clover Patch', 'Pitcher Plant',
+    'Marigold', 'Lavender', 'Starfall Magnolia', 'Celestia Bloom',
+    'Dragonroot Arbor', 'Prismheart Tree', 'Daisy', 'Tulip',
+    'Fern', 'Violet', 'Snapdragon', 'Orchid',
+  ];
+
+  if (plant.unique && plant.fusionParents && plant.fusionParents.length === 2) {
+    // Hybrid plants — render fully on base (too complex to split)
+    // renderHybridPlant already returns an upscaled canvas, use it directly as base
+    const hybridCanvas = renderHybridPlant(plant, growthStage, frameOffset);
+    return { base: hybridCanvas, foliage: foliageCanvas, bloom: bloomCanvas };
+  }
+
+  if (fullyCustom.includes(species)) {
+    // Custom species: body on base
+    switch (species) {
+      case 'Succulent': drawSucculent(baseCtx, cx, soilY, stemHeight, palette, rng, growthStage, size); break;
+      case 'Crystal Tree': {
+        const { points: cp, trunkHue } = drawCrystalTrunk(baseCtx, cx, soilY, stemHeight, rng, size);
+        let crystalPts = [...cp];
+        if (growthStage > 0.25) { const bp = drawCrystalBranches(baseCtx, cp, rng, size, trunkHue); crystalPts = [...crystalPts, ...bp]; }
+        if (growthStage > 0.3) drawCrystalShards(baseCtx, crystalPts, palette, rng, growthStage, size);
+        break;
+      }
+      case 'Clover Patch': drawCloverPatch(baseCtx, cx, soilY, palette, rng, growthStage, size); break;
+      case 'Pitcher Plant': drawPitcherPlant(baseCtx, cx, soilY, stemHeight, palette, rng, growthStage, size); break;
+      case 'Marigold': drawMarigold(baseCtx, cx, soilY, stemHeight, palette, rng, growthStage, size); break;
+      case 'Lavender': drawLavender(baseCtx, cx, soilY, stemHeight, palette, rng, growthStage, size); break;
+      case 'Starfall Magnolia': drawStarfallMagnolia(baseCtx, cx, soilY, stemHeight, rng, growthStage, size); break;
+      case 'Celestia Bloom': drawCelestiaBloom(baseCtx, cx, soilY, stemHeight, palette, rng, growthStage, size); break;
+      case 'Dragonroot Arbor': drawDragonrootArbor(baseCtx, cx, soilY, stemHeight, palette, rng, growthStage, size); break;
+      case 'Prismheart Tree': drawPrismheartTree(baseCtx, cx, soilY, stemHeight, rng, growthStage, size, frameOffset); break;
+      case 'Daisy': drawDaisy(baseCtx, cx, soilY, stemHeight, palette, rng, growthStage, size); break;
+      case 'Tulip': drawTulip(baseCtx, cx, soilY, stemHeight, palette, rng, growthStage, size); break;
+      case 'Fern': drawFern(baseCtx, cx, soilY, stemHeight, palette, rng, growthStage, size); break;
+      case 'Violet': drawViolet(baseCtx, cx, soilY, stemHeight, palette, rng, growthStage, size); break;
+      case 'Snapdragon': drawSnapdragon(baseCtx, cx, soilY, stemHeight, palette, rng, growthStage, size); break;
+      case 'Orchid': drawOrchid(baseCtx, cx, soilY, stemHeight, palette, rng, growthStage, size); break;
+    }
+    addSparkles();
+    addFace();
+    return { base: baseCanvas, foliage: foliageCanvas, bloom: bloomCanvas };
+  }
+
+  // ── Cactus Rose: body on base, flowers on bloom ──
+  if (species === 'Cactus Rose') {
+    const cactusPoints = drawCactusBody(baseCtx, cx, soilY, stemHeight, palette, rng, growthStage, size);
+    if (growthStage > 0.7 && plant.hasFlowers) {
+      drawFlowers(bloomCtx, cactusPoints, palette, rng, growthStage, complexity, size, plant.flowerTemplate);
+    }
+    addSparkles();
+    addFace();
+    return { base: baseCanvas, foliage: foliageCanvas, bloom: bloomCanvas };
+  }
+
+  // ── Stormvine: body on base, leaves on foliage ──
+  if (species === 'Stormvine') {
+    const stormPts = drawStormvine(baseCtx, cx, soilY, stemHeight, palette, rng, growthStage, size);
+    if (growthStage > 0.15) {
+      const leafGrowth = Math.min(1, (growthStage - 0.15) / 0.55);
+      drawLeaves(foliageCtx, stormPts, palette, rng, plant.leafType || 'fern', leafGrowth, complexity, size);
+    }
+    addSparkles();
+    addFace();
+    return { base: baseCanvas, foliage: foliageCanvas, bloom: bloomCanvas };
+  }
+
+  // ── Generic stem-based pipeline: full layer separation ──
+  // Base: stem + branches
+  const stemPoints = drawStem(baseCtx, cx, soilY, stemHeight, palette, rng, complexity, size);
+  let allPoints = [...stemPoints];
+
+  if (growthStage > 0.25 && complexity >= 2) {
+    const branchPoints = drawBranches(baseCtx, stemPoints, palette, rng, complexity, growthStage, size);
+    allPoints = [...allPoints, ...branchPoints];
+  }
+
+  // Bonsai canopy + roots on base
+  if (species === 'Bonsai' && growthStage > 0.25) {
+    drawBonsaiCanopy(baseCtx, allPoints, palette, rng, growthStage, size);
+    const numRoots = rng.int(2, 4);
+    for (let r = 0; r < numRoots; r++) {
+      const dir = (r % 2 === 0) ? -1 : 1;
+      const rootLen = rng.int(2, 4);
+      let rx = cx;
+      for (let j = 0; j < rootLen; j++) {
+        rx += dir;
+        setPixel(baseCtx, rx, soilY - 1, palette.stem || palette.greens[0]);
+        if (rng.chance(0.4)) setPixel(baseCtx, rx, soilY - 2, palette.stem || palette.greens[0]);
+      }
+    }
+  }
+
+  // Foliage: leaves
+  if (growthStage > 0.15) {
+    const leafGrowth = Math.min(1, (growthStage - 0.15) / 0.55);
+    drawLeaves(foliageCtx, allPoints, palette, rng, plant.leafType || 'round', leafGrowth, complexity, size);
+  }
+
+  // Bloom: flowers
+  if (species === 'Moon Lily' && growthStage > 0.7) {
+    drawMoonLilyPetals(bloomCtx, allPoints, palette, rng, growthStage, size);
+  } else if (species === 'Golden Lotus' && growthStage > 0.7) {
+    drawGoldenLotusPetals(bloomCtx, allPoints, rng, growthStage, size);
+  } else if (species === 'Black Dahlia') {
+    drawBlackDahliaFlowers(bloomCtx, allPoints, rng, growthStage, complexity, size);
+  } else if (species === 'Blue Fire Poppy') {
+    drawBlueFirePoppyFlowers(bloomCtx, allPoints, rng, growthStage, complexity, size, frameOffset);
+  } else if (species === 'Glowing Nightshade') {
+    drawNightshadeBerries(bloomCtx, allPoints, rng, growthStage, size);
+  } else if (species === 'Emberthorn Blossom') {
+    drawEmberthornCore(bloomCtx, allPoints, rng, growthStage, size);
+  } else if (growthStage > 0.7 && plant.hasFlowers) {
+    drawFlowers(bloomCtx, allPoints, palette, rng, growthStage, complexity, size, plant.flowerTemplate);
+  }
+
+  addSparkles();
+  addFace();
+  return { base: baseCanvas, foliage: foliageCanvas, bloom: bloomCanvas };
 }
 
 // Render at display scale

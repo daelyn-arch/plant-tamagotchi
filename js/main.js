@@ -822,4 +822,42 @@ function setupDevControls() {
 }
 
 // Boot
-document.addEventListener('DOMContentLoaded', init);
+function updateTimeOfDay() {
+  const hour = new Date().getHours();
+  let period;
+  if (hour >= 6 && hour < 10) period = 'morning';
+  else if (hour >= 10 && hour < 17) period = 'day';
+  else if (hour >= 17 && hour < 20) period = 'evening';
+  else period = 'night';
+  document.documentElement.setAttribute('data-time', period);
+}
+
+function initSeasonalEffects() {
+  const month = new Date().getMonth();
+  let type = null;
+  if (month >= 2 && month <= 4) type = 'cherry';
+  else if (month >= 11 || month <= 1) type = 'snow';
+  if (!type) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'seasonal-overlay';
+  document.body.appendChild(overlay);
+  function spawnParticle() {
+    if (overlay.children.length > 12) return;
+    const el = document.createElement('div');
+    el.className = 'seasonal-particle seasonal-' + type;
+    el.style.left = Math.random() * 100 + '%';
+    const fallTime = 6 + Math.random() * 8;
+    el.style.setProperty('--fall-time', fallTime + 's');
+    overlay.appendChild(el);
+    setTimeout(() => el.remove(), fallTime * 1000);
+  }
+  setInterval(spawnParticle, 2000);
+  for (let i = 0; i < 4; i++) setTimeout(spawnParticle, i * 500);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  init();
+  updateTimeOfDay();
+  setInterval(updateTimeOfDay, 60000);
+  initSeasonalEffects();
+});

@@ -176,3 +176,94 @@ export const ELEMENTAL_POT_PALETTES = {
 export function clearCanvas(ctx, w, h) {
   ctx.clearRect(0, 0, w, h);
 }
+
+// Post-processing: add dark outline around all opaque pixels
+export function applyOutline(ctx, size) {
+  const imageData = ctx.getImageData(0, 0, size, size);
+  const data = imageData.data;
+
+  // Build alpha lookup
+  const alpha = new Uint8Array(size * size);
+  for (let i = 0; i < size * size; i++) {
+    alpha[i] = data[i * 4 + 3];
+  }
+
+  // Find outline pixels: transparent pixels adjacent to opaque pixels
+  const outlinePixels = [];
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = y * size + x;
+      if (alpha[idx] > 0) continue; // skip opaque pixels
+      // Check 4-directional neighbors
+      let hasOpaqueNeighbor = false;
+      if (x > 0 && alpha[idx - 1] > 0) hasOpaqueNeighbor = true;
+      if (x < size - 1 && alpha[idx + 1] > 0) hasOpaqueNeighbor = true;
+      if (y > 0 && alpha[idx - size] > 0) hasOpaqueNeighbor = true;
+      if (y < size - 1 && alpha[idx + size] > 0) hasOpaqueNeighbor = true;
+      if (hasOpaqueNeighbor) {
+        outlinePixels.push([x, y]);
+      }
+    }
+  }
+
+  // Draw outline pixels
+  const outlineColor = '#1a1a2e';
+  ctx.fillStyle = outlineColor;
+  for (const [x, y] of outlinePixels) {
+    ctx.fillRect(x, y, 1, 1);
+  }
+}
+
+// Post-processing: add specular highlights on green-ish pixels
+export function applySpecularHighlights(ctx, size, rng) {
+  const imageData = ctx.getImageData(0, 0, size, size);
+  const data = imageData.data;
+
+  // Collect candidate green pixels in the upper 75% of the canvas
+  const candidates = [];
+  const maxY = Math.floor(size * 0.75);
+  for (let y = 0; y < maxY; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = (y * size + x) * 4;
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+      const a = data[idx + 3];
+      // Check if pixel is green-ish (g > r and g > b, and opaque)
+      if (a > 128 && g > r && g > b && g > 40) {
+        candidates.push([x, y]);
+      }
+    }
+  }
+
+  if (candidates.length === 0) return;
+
+  // Place sparse highlights, minimum 4px apart
+  const maxHighlights = Math.min(20, Math.max(3, Math.floor(candidates.length * 0.03)));
+  const placed = [];
+
+  for (let i = 0; i < maxHighlights * 3 && placed.length < maxHighlights; i++) {
+    const [cx, cy] = rng.pick(candidates);
+    // Check minimum distance from already placed highlights
+    let tooClose = false;
+    for (const [px, py] of placed) {
+      if (Math.abs(cx - px) + Math.abs(cy - py) < 4) {
+        tooClose = true;
+        break;
+      }
+    }
+    if (tooClose) continue;
+    placed.push([cx, cy]);
+
+    // Draw the highlight dot
+    ctx.fillStyle = '#b0fff0';
+    ctx.fillRect(cx, cy, 1, 1);
+
+    // Subtle 1px halo — semi-transparent lighter shade on neighbors
+    ctx.fillStyle = 'rgba(176, 255, 240, 0.3)';
+    if (cx > 0) ctx.fillRect(cx - 1, cy, 1, 1);
+    if (cx < size - 1) ctx.fillRect(cx + 1, cy, 1, 1);
+    if (cy > 0) ctx.fillRect(cx, cy - 1, 1, 1);
+    if (cy < size - 1) ctx.fillRect(cx, cy + 1, 1, 1);
+  }
+}
